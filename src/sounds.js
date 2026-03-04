@@ -1,12 +1,20 @@
 // ============================================================
-// KIRSHAS MONOPOLIA — Sound Engine (Tone.js + Custom Audio)
+// KIRSHAS MONOPOLIA — Sound Engine (Tone.js + Playlist System)
 // ============================================================
 import * as Tone from 'tone';
 
 let audioStarted = false;
 let customAudioConfig = {};
+
+// --- PLAYLIST SYSTEM ---
+let currentPlaylist = null;   // { keys: [...], index: 0, mode: 'menu'|'game' }
 let musicPlayer = null;
+let nextMusicPlayer = null;   // for crossfade
 let currentMusicKey = null;
+let musicVolume = 0.5;
+let fadeDuration = 2000;      // ms crossfade
+let fadeTimer = null;
+let playlistTimer = null;
 
 export const startAudio = async () => {
   if (!audioStarted) {
@@ -30,35 +38,184 @@ function playCustomSfx(url, vol) {
   } catch { return false; }
 }
 
-// --- BACKGROUND MUSIC ---
+// --- PLAYLIST MUSIC SYSTEM ---
+
+// Start a playlist of music keys that cycle
+// keys: array of audio config keys like ['menuMusic', 'menuMusic2', ...]
+// or a single mode string like 'menu' or 'game' which auto-collects matching keys
+export function startPlaylist(mode, vol = 0.5) {
+  stopMusic();
+  musicVolume = Math.min(1, Math.max(0, vol));
+
+  // Collect all keys for this mode
+  const prefix = mode === 'menu' ? 'menuMusic' : mode === 'game' ? 'gameMusic' : mode;
+  const keys = [];
+
+  // Check for exact key first
+  if (customAudioConfig[prefix]) keys.push(prefix);
+
+  // Check numbered variants (menuMusic2, menuMusic3, etc.)
+  for (let i = 2; i <= 20; i++) {
+    const k = `${prefix}${i}`;
+    if (customAudioConfig[k]) keys.push(k);
+  }
+
+  // Also check related keys for game mode
+  if (mode === 'game') {
+    if (customAudioConfig.battleMusic) keys.push('battleMusic');
+    if (customAudioConfig.winterMusic) keys.push('winterMusic');
+  }
+
+  if (keys.length === 0) return;
+
+  currentPlaylist = { keys, index: 0, mode };
+  playTrack(0);
+}
+
+function playTrack(index) {
+  if (!currentPlaylist || currentPlaylist.keys.length === 0) return;
+
+  const idx = index % currentPlaylist.keys.length;
+  currentPlaylist.index = idx;
+  const key = currentPlaylist.keys[idx];
+  const url = customAudioConfig[key];
+  if (!url) { playNextTrack(); return; }
+
+  try {
+    if (musicPlayer) {
+      musicPlayer.pause();
+      musicPlayer = null;
+    }
+
+    musicPlayer = new Audio(url);
+    musicPlayer.volume = musicVolume;
+    currentMusicKey = key;
+
+    // When track ends, crossfade to next
+    musicPlayer.addEventListener('ended', () => {
+      playNextTrack();
+    });
+
+    // Start fade-in
+    musicPlayer.volume = 0;
+    musicPlayer.play().catch(() => {});
+    fadeIn(musicPlayer, musicVolume, fadeDuration);
+  } catch {}
+}
+
+function playNextTrack() {
+  if (!currentPlaylist || currentPlaylist.keys.length === 0) return;
+
+  const nextIdx = (currentPlaylist.index + 1) % currentPlaylist.keys.length;
+  const key = currentPlaylist.keys[nextIdx];
+  const url = customAudioConfig[key];
+  if (!url) {
+    currentPlaylist.index = nextIdx;
+    // try next after that
+    if (currentPlaylist.keys.length > 1) playNextTrack();
+    return;
+  }
+
+  // Crossfade: fade out current, fade in next
+  const oldPlayer = musicPlayer;
+
+  try {
+    nextMusicPlayer = new Audio(url);
+    nextMusicPlayer.volume = 0;
+    currentMusicKey = key;
+    currentPlaylist.index = nextIdx;
+
+    nextMusicPlayer.addEventListener('ended', () => {
+      playNextTrack();
+    });
+
+    nextMusicPlayer.play().catch(() => {});
+
+    // Crossfade
+    fadeOut(oldPlayer, fadeDuration);
+    fadeIn(nextMusicPlayer, musicVolume, fadeDuration);
+
+    // After fade, clean up old
+    setTimeout(() => {
+      if (oldPlayer) {
+        oldPlayer.pause();
+        oldPlayer.src = '';
+      }
+    }, fadeDuration + 100);
+
+    musicPlayer = nextMusicPlayer;
+    nextMusicPlayer = null;
+  } catch {}
+}
+
+function fadeIn(audio, targetVol, duration) {
+  if (!audio) return;
+  const steps = 20;
+  const interval = duration / steps;
+  let step = 0;
+  const timer = setInterval(() => {
+    step++;
+    audio.volume = Math.min(targetVol, (step / steps) * targetVol);
+    if (step >= steps) clearInterval(timer);
+  }, interval);
+}
+
+function fadeOut(audio, duration) {
+  if (!audio) return;
+  const startVol = audio.volume;
+  const steps = 20;
+  const interval = duration / steps;
+  let step = 0;
+  const timer = setInterval(() => {
+    step++;
+    audio.volume = Math.max(0, startVol * (1 - step / steps));
+    if (step >= steps) clearInterval(timer);
+  }, interval);
+}
+
+// Legacy single-track play (still works)
 export function playMusic(key, vol = 0.5) {
   stopMusic();
+  musicVolume = Math.min(1, Math.max(0, vol));
   const url = customAudioConfig[key];
   if (!url) return;
   try {
     musicPlayer = new Audio(url);
     musicPlayer.loop = true;
-    musicPlayer.volume = Math.min(1, Math.max(0, vol));
+    musicPlayer.volume = musicVolume;
     musicPlayer.play().catch(() => {});
     currentMusicKey = key;
   } catch {}
 }
 
 export function stopMusic() {
+  if (fadeTimer) { clearTimeout(fadeTimer); fadeTimer = null; }
+  if (playlistTimer) { clearTimeout(playlistTimer); playlistTimer = null; }
   if (musicPlayer) {
     musicPlayer.pause();
-    musicPlayer.currentTime = 0;
+    musicPlayer.src = '';
     musicPlayer = null;
-    currentMusicKey = null;
   }
+  if (nextMusicPlayer) {
+    nextMusicPlayer.pause();
+    nextMusicPlayer.src = '';
+    nextMusicPlayer = null;
+  }
+  currentMusicKey = null;
+  currentPlaylist = null;
 }
 
 export function setMusicVolume(vol) {
-  if (musicPlayer) musicPlayer.volume = Math.min(1, Math.max(0, vol));
+  musicVolume = Math.min(1, Math.max(0, vol));
+  if (musicPlayer) musicPlayer.volume = musicVolume;
 }
 
 export function getCurrentMusicKey() {
   return currentMusicKey;
+}
+
+export function getCurrentPlaylistMode() {
+  return currentPlaylist?.mode || null;
 }
 
 // --- SFX FUNCTIONS (with custom audio fallback) ---

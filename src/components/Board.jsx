@@ -144,9 +144,15 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
             }} />
           ))}
 
-          <div style={{ fontSize: emojiSize, animation: "float 4s ease-in-out infinite", zIndex: 1 }}>{centerEmoji}</div>
-          <div className="shimmer-text" style={{ fontFamily: font, fontSize: titleSize, fontWeight: "bold", letterSpacing: 4, marginTop: 4, zIndex: 1 }}>{gameTitle}</div>
-          <div style={{ color: accent, fontFamily: font, fontSize: subtitleSize, letterSpacing: 7, opacity: 0.7, zIndex: 1 }}>{gameSubtitle}</div>
+          {devData?.logoImage ? (
+            <img src={devData.logoImage} style={{ height: emojiSize + 20, objectFit: "contain", zIndex: 1, filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.5))" }} alt="" />
+          ) : (
+            <>
+              <div style={{ fontSize: emojiSize, animation: "float 4s ease-in-out infinite", zIndex: 1 }}>{centerEmoji}</div>
+              <div className="shimmer-text" style={{ fontFamily: font, fontSize: titleSize, fontWeight: "bold", letterSpacing: 4, marginTop: 4, zIndex: 1 }}>{gameTitle}</div>
+              <div style={{ color: accent, fontFamily: font, fontSize: subtitleSize, letterSpacing: 7, opacity: 0.7, zIndex: 1 }}>{gameSubtitle}</div>
+            </>
+          )}
 
           {/* Dice display */}
           {(game.dice[0] > 0 || diceAnim) && (
