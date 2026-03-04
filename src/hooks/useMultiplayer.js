@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { io } from 'socket.io-client';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+// In production (same origin), use undefined so socket.io auto-detects.
+// In dev, connect to the server port explicitly.
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || (import.meta.env.PROD ? undefined : 'http://localhost:3001');
 
 export default function useMultiplayer() {
   const socketRef = useRef(null);

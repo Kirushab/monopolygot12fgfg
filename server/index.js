@@ -707,6 +707,28 @@ setInterval(() => {
   broadcastRoomList();
 }, 5 * 60 * 1000);
 
+// Health check
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    uptime: process.uptime(),
+    rooms: rooms.size,
+    players: playerRoom.size,
+    timestamp: Date.now(),
+  });
+});
+
+// API: room stats
+app.get('/api/stats', (req, res) => {
+  const activeRooms = [...rooms.values()];
+  res.json({
+    rooms: activeRooms.length,
+    lobbies: activeRooms.filter(r => r.state === 'lobby').length,
+    playing: activeRooms.filter(r => r.state === 'playing').length,
+    players: playerRoom.size,
+  });
+});
+
 // Static files
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(join(__dirname, '../dist')));
