@@ -533,10 +533,9 @@ export default function Game() {
           </div>
         </div>
 
-        <div style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+        <div className="game-layout" style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
           {/* BOARD */}
-          <div style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
-            <Board
+          <Board
               game={game}
               selectedCell={selectedCell}
               setSelectedCell={setSelectedCell}
@@ -545,7 +544,6 @@ export default function Game() {
               animPos={animPos}
               cp={cp}
             />
-          </div>
 
           {/* Panel toggle */}
           {!panelOpen && (
@@ -553,7 +551,7 @@ export default function Game() {
           )}
 
           {/* RIGHT PANEL */}
-          <div style={{ width: panelOpen ? 300 : 0, background: S.bg2, borderLeft: panelOpen ? `1px solid ${S.border}` : "none", display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0, transition: "width 0.3s ease" }}>
+          <div className="game-panel" style={{ width: panelOpen ? 300 : 0, background: S.bg2, borderLeft: panelOpen ? `1px solid ${S.border}` : "none", display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0, transition: "width 0.3s ease" }}>
             <PlayerPanel game={game} lang={lang} t={t} onClose={() => setPanelOpen(false)} />
 
             {selectedCell !== null && cells[selectedCell] && (
