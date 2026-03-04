@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { T, HOUSES, TOKENS, AI_NAMES, BOARD_SIZE, CORNER } from '../gameData';
 import { S, btn, btnOutline } from '../theme';
-import { startAudio, playDiceSound, playMoveSound, playBuySound, playClickSound } from '../sounds';
+import { startAudio, playDiceSound, playMoveSound, playBuySound, playClickSound, setCustomAudio, playMusic, stopMusic } from '../sounds';
 import {
   deepClone, shuffle, rollDie,
   getCellCenter,
   createInitialState, calcWealthStatic, handleLanding
 } from '../gameEngine';
 import useMultiplayer from '../hooks/useMultiplayer';
+import { getSocket } from '../socket';
 
 import MainMenu from './MainMenu';
 import Settings from './Settings';
@@ -59,8 +60,67 @@ export default function Game() {
   const t = T[lang];
   const aiTimerRef = useRef(null);
 
+  // --- FETCH DEV CONFIG FROM SERVER ---
+  useEffect(() => {
+    fetch('/api/dev/config')
+      .then(r => r.json())
+      .then(data => {
+        if (data.config) {
+          setDevData(data.config);
+          try { localStorage.setItem('devData', JSON.stringify(data.config)); } catch {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // --- LISTEN FOR DEV CONFIG UPDATES VIA SOCKET ---
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+    const handler = (config) => {
+      const d = config || {};
+      setDevData(d);
+      try { localStorage.setItem('devData', JSON.stringify(d)); } catch {}
+    };
+    socket.on('dev_config_updated', handler);
+    return () => socket.off('dev_config_updated', handler);
+  }, []);
+
+  // --- INJECT CSS FOR ACCENT COLOR (hover effects, shimmer, animations) ---
+  useEffect(() => {
+    const accent = devData?.accentColor || '#c9a84c';
+    const n = parseInt(accent.slice(1), 16);
+    const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+    const light = `rgb(${Math.min(r + 80, 255)},${Math.min(g + 80, 255)},${Math.min(b + 80, 255)})`;
+
+    let style = document.getElementById('dev-accent-css');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'dev-accent-css';
+      document.head.appendChild(style);
+    }
+    style.textContent = `
+      .cell:hover { background: rgba(${r},${g},${b},0.12) !important; }
+      .shimmer-text {
+        background: linear-gradient(90deg, ${accent} 0%, ${light} 50%, ${accent} 100%) !important;
+        background-size: 200% auto !important;
+        -webkit-background-clip: text !important;
+        -webkit-text-fill-color: transparent !important;
+        animation: shimmer 3s linear infinite !important;
+      }
+      @keyframes shimmer { to { background-position: 200% center; } }
+      @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+    `;
+    return () => { style.remove(); };
+  }, [devData?.accentColor]);
+
   // Multiplayer hook
   const mp = useMultiplayer();
+
+  // --- SYNC CUSTOM AUDIO FROM DEV DATA ---
+  useEffect(() => {
+    if (devData?.audio) setCustomAudio(devData.audio);
+  }, [devData?.audio]);
 
   // Sync online game state from server
   useEffect(() => {
@@ -520,20 +580,22 @@ export default function Game() {
     }
 
     return (
-      <div style={{ height: "100vh", background: S.bg, color: S.text, fontFamily: S.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ height: "100vh", background: S.bg, color: S.text, fontFamily: devData?.font || S.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* TOP BAR */}
-        <div style={{ background: S.bg2, borderBottom: `1px solid ${S.border}`, padding: "8px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, fontFamily: S.font }}>
+        <div style={{ background: S.bg2, borderBottom: `1px solid ${S.border}`, padding: "8px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, fontFamily: devData?.font || S.font }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: S.gold, fontWeight: "bold", letterSpacing: 2 }}>⚔️ KIRSHAS MONOPOLIA</span>
+            <span style={{ color: devData?.accentColor || S.gold, fontWeight: "bold", letterSpacing: 2 }}>{devData?.centerEmoji || "⚔️"} {devData?.gameTitle || "KIRSHAS"} {devData?.gameSubtitle || "MONOPOLIA"}</span>
             <span style={{ color: S.textDim, fontSize: 12, letterSpacing: 1 }}>R{game.roundCount}</span>
             {isOnline && <span style={{ fontSize: 10, color: mp.connected ? "#50c878" : "#ff6b6b", letterSpacing: 1 }}>● {lang === "ru" ? "ОНЛАЙН" : "ONLINE"}</span>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setDevPanelOpen(!devPanelOpen)} style={{ background: devPanelOpen ? S.gold + "33" : "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }} title="Dev Panel">🔧</button>
-            <button onClick={() => setChatOpen(!chatOpen)} style={{ background: chatOpen ? S.gold + "33" : "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }}>💬</button>
-            <button onClick={() => setPanelOpen(!panelOpen)} style={{ background: panelOpen ? S.gold + "33" : "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }}>☰</button>
-            {!isOnline && <button onClick={() => updateGame((g) => { g.paused = true; })} style={{ background: "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }}>⏸</button>}
-            {isOnline && <button onClick={leaveOnlineGame} style={{ background: "transparent", color: "#ff6b6b", border: "1px solid #ff6b6b44", padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }}>{lang === "ru" ? "Выйти" : "Leave"}</button>}
+            {(() => { const ac = devData?.accentColor || S.gold; const f = devData?.font || S.font; const bs = (active) => ({ background: active ? ac + "33" : "transparent", color: ac, border: `1px solid ${ac}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: f }); return (<>
+            <button onClick={() => setDevPanelOpen(!devPanelOpen)} style={bs(devPanelOpen)} title="Dev Panel">🔧</button>
+            <button onClick={() => setChatOpen(!chatOpen)} style={bs(chatOpen)}>💬</button>
+            <button onClick={() => setPanelOpen(!panelOpen)} style={bs(panelOpen)}>☰</button>
+            {!isOnline && <button onClick={() => updateGame((g) => { g.paused = true; })} style={bs(false)}>⏸</button>}
+            {isOnline && <button onClick={leaveOnlineGame} style={{ background: "transparent", color: "#ff6b6b", border: "1px solid #ff6b6b44", padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: f }}>{lang === "ru" ? "Выйти" : "Leave"}</button>}
+            </>); })()}
           </div>
         </div>
 

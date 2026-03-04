@@ -4,6 +4,13 @@ import { BOARD_SIZE, CORNER } from '../gameData';
 import { getCellPos } from '../gameEngine';
 import Cell from './Cell';
 
+// Helper: hex to rgba
+const rgba = (hex, a) => {
+  if (!hex || hex[0] !== '#') return `rgba(201,168,76,${a})`;
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
 // Dice face dots layout
 const DICE_DOTS = {
   1: [[50,50]],
@@ -14,29 +21,31 @@ const DICE_DOTS = {
   6: [[25,25],[75,25],[25,50],[75,50],[25,75],[75,75]],
 };
 
-function DiceFace({ value, rolling }) {
+function DiceFace({ value, rolling, accent, diceColor, size }) {
   const dots = DICE_DOTS[value] || DICE_DOTS[1];
+  const dc = diceColor || accent;
+  const s = size || 56;
   return (
     <div className={`dice ${rolling ? "rolling" : "landed"}`} style={{
-      width: 56, height: 56,
+      width: s, height: s,
       background: "linear-gradient(145deg, #1e1e2e, #0e0e1a)",
-      border: `2px solid ${S.gold}`,
+      border: `2px solid ${dc}`,
       borderRadius: 10,
       position: "relative",
-      boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 1px 2px rgba(201,168,76,0.15)`,
+      boxShadow: `0 4px 12px rgba(0,0,0,0.6), inset 0 1px 2px ${rgba(dc, 0.15)}`,
     }}>
       {rolling ? (
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, color: S.gold, fontWeight: "bold" }}>?</div>
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.round(s * 0.43), color: accent, fontWeight: "bold" }}>?</div>
       ) : (
         dots.map(([x, y], i) => (
           <div key={i} style={{
             position: "absolute",
             left: `${x}%`, top: `${y}%`,
-            width: 9, height: 9,
+            width: Math.round(s * 0.16), height: Math.round(s * 0.16),
             borderRadius: "50%",
-            background: `radial-gradient(circle, #ffd700, ${S.gold})`,
+            background: `radial-gradient(circle, ${dc}, ${rgba(dc, 0.8)})`,
             transform: "translate(-50%,-50%)",
-            boxShadow: "0 0 4px rgba(201,168,76,0.5)",
+            boxShadow: `0 0 4px ${rgba(dc, 0.5)}`,
           }} />
         ))
       )}
@@ -48,6 +57,21 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
   const cells = game.cells;
   const containerRef = useRef(null);
   const [scale, setScale] = useState(1);
+
+  // Derived dev values
+  const accent = devData?.accentColor || S.gold;
+  const boardBgColor = devData?.boardBgColor || null;
+  const boardBorderColor = devData?.boardBorderColor || null;
+  const diceColor = devData?.diceColor || null;
+  const showGrid = devData?.showGrid !== false;
+  const centerEmoji = devData?.centerEmoji || "⚔️";
+  const gameTitle = devData?.gameTitle || "KIRSHAS";
+  const gameSubtitle = devData?.gameSubtitle || "MONOPOLIA";
+  const emojiSize = devData?.layout?.emojiSize || 48;
+  const titleSize = devData?.layout?.titleSize || 22;
+  const subtitleSize = devData?.layout?.subtitleSize || 12;
+  const diceSize = devData?.layout?.diceSize || 56;
+  const font = devData?.font || S.font;
 
   // Auto-scale board to fit container
   useEffect(() => {
@@ -70,26 +94,30 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
     <div ref={containerRef} className="game-board-container" style={{ flex: 1, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
       <div style={{
         position: "relative", width: BOARD_SIZE, height: BOARD_SIZE,
-        background: `linear-gradient(135deg, ${S.bg3}, #0f0f1a)`,
-        border: `2px solid ${S.gold}33`,
+        background: boardBgColor
+          ? `linear-gradient(135deg, ${boardBgColor}, ${rgba(boardBgColor, 0.7)})`
+          : `linear-gradient(135deg, ${S.bg3}, #0f0f1a)`,
+        border: `2px solid ${rgba(boardBorderColor || accent, 0.2)}`,
         borderRadius: 12,
         flexShrink: 0,
         boxShadow: `0 0 40px rgba(0,0,0,0.5), inset 0 0 60px rgba(0,0,0,0.3)`,
         transform: `scale(${scale})`,
         transformOrigin: "center center",
       }}>
-        {/* Board texture overlay */}
-        <div style={{
-          position: "absolute", inset: 0, borderRadius: 12,
-          backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(201,168,76,0.04) 40px, rgba(201,168,76,0.04) 41px), repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(201,168,76,0.04) 40px, rgba(201,168,76,0.04) 41px)",
-          pointerEvents: "none",
-        }} />
+        {/* Board texture overlay (grid) */}
+        {showGrid && (
+          <div style={{
+            position: "absolute", inset: 0, borderRadius: 12,
+            backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 40px, ${rgba(accent, 0.04)} 40px, ${rgba(accent, 0.04)} 41px), repeating-linear-gradient(90deg, transparent, transparent 40px, ${rgba(accent, 0.04)} 40px, ${rgba(accent, 0.04)} 41px)`,
+            pointerEvents: "none",
+          }} />
+        )}
 
         {/* Center logo */}
         <div style={{
           position: "absolute", left: CORNER + 16, top: CORNER + 16, right: CORNER + 16, bottom: CORNER + 16,
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          border: `1px solid ${S.gold}18`,
+          border: `1px solid ${rgba(accent, 0.09)}`,
           borderRadius: 12,
           background: devData?.boardBg
             ? `url(${devData.boardBg}) center/cover no-repeat`
@@ -108,23 +136,23 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
               [cy ? "bottom" : "top"]: 8,
               [cx ? "right" : "left"]: 8,
               width: 20, height: 20,
-              borderTop: cy ? "none" : `1px solid ${S.gold}44`,
-              borderBottom: cy ? `1px solid ${S.gold}44` : "none",
-              borderLeft: cx ? "none" : `1px solid ${S.gold}44`,
-              borderRight: cx ? `1px solid ${S.gold}44` : "none",
+              borderTop: cy ? "none" : `1px solid ${rgba(accent, 0.27)}`,
+              borderBottom: cy ? `1px solid ${rgba(accent, 0.27)}` : "none",
+              borderLeft: cx ? "none" : `1px solid ${rgba(accent, 0.27)}`,
+              borderRight: cx ? `1px solid ${rgba(accent, 0.27)}` : "none",
               zIndex: 1,
             }} />
           ))}
 
-          <div style={{ fontSize: 48, animation: "float 4s ease-in-out infinite", zIndex: 1 }}>⚔️</div>
-          <div className="shimmer-text" style={{ fontFamily: S.font, fontSize: 22, fontWeight: "bold", letterSpacing: 4, marginTop: 4, zIndex: 1 }}>KIRSHAS</div>
-          <div style={{ color: S.gold, fontFamily: S.font, fontSize: 12, letterSpacing: 7, opacity: 0.7, zIndex: 1 }}>MONOPOLIA</div>
+          <div style={{ fontSize: emojiSize, animation: "float 4s ease-in-out infinite", zIndex: 1 }}>{centerEmoji}</div>
+          <div className="shimmer-text" style={{ fontFamily: font, fontSize: titleSize, fontWeight: "bold", letterSpacing: 4, marginTop: 4, zIndex: 1 }}>{gameTitle}</div>
+          <div style={{ color: accent, fontFamily: font, fontSize: subtitleSize, letterSpacing: 7, opacity: 0.7, zIndex: 1 }}>{gameSubtitle}</div>
 
           {/* Dice display */}
           {(game.dice[0] > 0 || diceAnim) && (
             <div style={{ display: "flex", gap: 16, marginTop: 24, zIndex: 1 }}>
-              <DiceFace value={game.dice[0]} rolling={diceAnim} />
-              <DiceFace value={game.dice[1]} rolling={diceAnim} />
+              <DiceFace value={game.dice[0]} rolling={diceAnim} accent={accent} diceColor={diceColor} size={diceSize} />
+              <DiceFace value={game.dice[1]} rolling={diceAnim} accent={accent} diceColor={diceColor} size={diceSize} />
             </div>
           )}
 
@@ -132,12 +160,12 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
           {game.message && (
             <div style={{
               marginTop: 16, color: S.text, fontSize: 13, textAlign: "center",
-              maxWidth: 300, lineHeight: 1.6, fontFamily: S.font,
+              maxWidth: 300, lineHeight: 1.6, fontFamily: font,
               animation: "fadeIn 0.4s ease-out",
               padding: "8px 16px",
-              background: "rgba(201,168,76,0.05)",
+              background: rgba(accent, 0.05),
               borderRadius: 8,
-              border: `1px solid ${S.gold}11`,
+              border: `1px solid ${rgba(accent, 0.07)}`,
               zIndex: 1,
             }}>{game.message}</div>
           )}
@@ -177,7 +205,7 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 28, zIndex: 10,
             transition: "left 0.05s linear, top 0.05s linear",
-            filter: "drop-shadow(0 0 14px rgba(201,168,76,0.9)) drop-shadow(0 4px 8px rgba(0,0,0,0.5))",
+            filter: `drop-shadow(0 0 14px ${rgba(accent, 0.9)}) drop-shadow(0 4px 8px rgba(0,0,0,0.5))`,
             animation: "tokenMove 0.3s ease-out",
           }}>
             {devData?.tokenTextures?.[cp.id] ? (
