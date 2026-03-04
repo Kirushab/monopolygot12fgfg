@@ -1,6 +1,13 @@
 import { S } from '../theme';
 import { HOUSES } from '../gameData';
 
+// Helper: hex to rgba
+const rgba = (hex, a) => {
+  if (!hex || hex[0] !== '#') return `rgba(201,168,76,${a})`;
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+};
+
 const BUILDING_ICONS = ['', '🏠', '🏠🏠', '🏠🏠🏠', '🏠🏠🏠🏠', '🏰'];
 
 export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, selected, isCurrent, onClick, devData }) {
@@ -9,6 +16,34 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
   const customTexture = devData?.cellTextures?.[cell.id];
   const displayName = customName ?? cell.name;
 
+  // Dev overrides
+  const accent = devData?.accentColor || S.gold;
+  const houseColor = (cell.house && devData?.houseColors?.[cell.house]) || house?.color;
+  const ownerColor = owner && (devData?.playerColors?.[owner.id] || owner.color);
+  const cellBg = devData?.cellBgColors?.[cell.id];
+
+  // Custom building textures
+  const buildingTextures = devData?.buildingTextures || {};
+  const buildings = cell._buildings || 0;
+
+  // Render custom building icons
+  const renderBuildings = () => {
+    if (buildings <= 0) return null;
+    if (buildings >= 5 && buildingTextures.castle) {
+      return <img src={buildingTextures.castle} style={{ width: 14, height: 14, objectFit: "contain" }} />;
+    }
+    if (buildingTextures.house) {
+      return (
+        <div style={{ display: "flex", gap: 1 }}>
+          {Array.from({ length: Math.min(buildings, 4) }, (_, i) => (
+            <img key={i} src={buildingTextures.house} style={{ width: 8, height: 8, objectFit: "contain" }} />
+          ))}
+        </div>
+      );
+    }
+    return <span>{BUILDING_ICONS[buildings] || BUILDING_ICONS[5]}</span>;
+  };
+
   return (
     <div
       className={`cell${isCurrent ? " active-player" : ""}`}
@@ -16,21 +51,23 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
       style={{
         position: "absolute",
         left: pos.x, top: pos.y, width: pos.w, height: pos.h,
-        border: selected ? `1px solid ${S.gold}88` : `1px solid ${S.gold}15`,
-        background: selected
-          ? `linear-gradient(135deg, rgba(201,168,76,0.18), rgba(201,168,76,0.08))`
-          : owner
-            ? `linear-gradient(135deg, ${owner.color}08, transparent)`
-            : "rgba(255,255,255,0.015)",
+        border: selected ? `1px solid ${rgba(accent, 0.53)}` : `1px solid ${rgba(accent, 0.08)}`,
+        background: cellBg
+          ? `linear-gradient(135deg, ${cellBg}, ${rgba(cellBg, 0.6)})`
+          : selected
+            ? `linear-gradient(135deg, ${rgba(accent, 0.18)}, ${rgba(accent, 0.08)})`
+            : owner
+              ? `linear-gradient(135deg, ${ownerColor}08, transparent)`
+              : "rgba(255,255,255,0.015)",
         cursor: "pointer",
         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
         fontSize: isCorner ? 10 : 8,
         color: S.text,
         overflow: "hidden",
         padding: 3,
-        fontFamily: S.font,
+        fontFamily: devData?.font || S.font,
         transition: "all 0.2s ease",
-        boxShadow: selected ? `inset 0 0 12px rgba(201,168,76,0.15)` : "none",
+        boxShadow: selected ? `inset 0 0 12px ${rgba(accent, 0.15)}` : "none",
       }}
     >
       {/* House color bar */}
@@ -38,14 +75,14 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
         <div style={{
           position: "absolute", top: 0, left: 0, right: 0,
           height: isCorner ? 12 : 8,
-          background: `linear-gradient(135deg, ${house.color}, ${house.color}aa)`,
-          boxShadow: `0 2px 6px ${house.color}44`,
+          background: `linear-gradient(135deg, ${houseColor}, ${houseColor}aa)`,
+          boxShadow: `0 2px 6px ${houseColor}44`,
         }} />
       )}
 
       {/* Owner border glow */}
       {owner && (
-        <div style={{ position: "absolute", inset: 0, border: `1px solid ${owner.color}33`, pointerEvents: "none" }} />
+        <div style={{ position: "absolute", inset: 0, border: `1px solid ${ownerColor}33`, pointerEvents: "none" }} />
       )}
 
       {/* Cell icon — custom texture or emoji */}
@@ -74,17 +111,17 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
 
       {/* Price */}
       {cell.price && (
-        <div style={{ fontSize: 7, color: S.gold, fontWeight: "bold", textShadow: "0 0 4px rgba(201,168,76,0.3)", marginTop: 1 }}>{cell.price}</div>
+        <div style={{ fontSize: 7, color: accent, fontWeight: "bold", textShadow: `0 0 4px ${rgba(accent, 0.3)}`, marginTop: 1 }}>{cell.price}</div>
       )}
 
       {/* Buildings */}
-      {cell._buildings > 0 && (
+      {buildings > 0 && (
         <div style={{
-          fontSize: cell._buildings >= 5 ? 10 : 7,
+          fontSize: buildings >= 5 ? 10 : 7,
           position: "absolute", top: house ? (isCorner ? 14 : 10) : 2, right: 2,
           filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.5))",
         }}>
-          {BUILDING_ICONS[cell._buildings] || BUILDING_ICONS[5]}
+          {renderBuildings()}
         </div>
       )}
 
@@ -95,25 +132,26 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
 
       {/* Owner dot */}
       {owner && (
-        <div style={{ position: "absolute", bottom: 2, right: 2, width: 7, height: 7, borderRadius: "50%", background: `radial-gradient(circle, ${owner.color}, ${owner.color}88)`, boxShadow: `0 0 4px ${owner.color}66` }} />
+        <div style={{ position: "absolute", bottom: 2, right: 2, width: 7, height: 7, borderRadius: "50%", background: `radial-gradient(circle, ${ownerColor}, ${ownerColor}88)`, boxShadow: `0 0 4px ${ownerColor}66` }} />
       )}
 
       {/* Players on cell */}
       {playersHere.length > 0 && (
         <div style={{ position: "absolute", bottom: 1, left: 1, display: "flex", gap: 0, flexWrap: "wrap" }}>
-          {playersHere.map((p) => (
-            devData?.tokenTextures?.[p.id] ? (
+          {playersHere.map((p) => {
+            const pColor = devData?.playerColors?.[p.id] || p.color;
+            return devData?.tokenTextures?.[p.id] ? (
               <img key={p.id} src={devData.tokenTextures[p.id]} style={{
                 width: isCorner ? 13 : 10,
                 height: isCorner ? 13 : 10,
                 borderRadius: "50%",
                 objectFit: "cover",
-                filter: `drop-shadow(0 1px 3px ${p.color}88)`,
+                filter: `drop-shadow(0 1px 3px ${pColor}88)`,
               }} />
             ) : (
-              <span key={p.id} className="player-token" style={{ fontSize: isCorner ? 13 : 10, filter: `drop-shadow(0 1px 3px ${p.color}88)` }}>{p.token.emoji}</span>
-            )
-          ))}
+              <span key={p.id} className="player-token" style={{ fontSize: isCorner ? 13 : 10, filter: `drop-shadow(0 1px 3px ${pColor}88)` }}>{p.token.emoji}</span>
+            );
+          })}
         </div>
       )}
     </div>

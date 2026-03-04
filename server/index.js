@@ -7,6 +7,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 
 // Import shared engine — server is authoritative
 import {
@@ -18,6 +19,49 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
+
+// JSON body parser with large limit for base64 uploads
+app.use(express.json({ limit: '50mb' }));
+
+// ============================================================
+// DEV CONFIG — Server-side persistence + password auth
+// ============================================================
+const DEV_PASSWORD = "GOT";
+const DATA_DIR = join(__dirname, '../data');
+const UPLOADS_DIR = join(DATA_DIR, 'uploads');
+const BACKUPS_DIR = join(DATA_DIR, 'backups');
+[DATA_DIR, UPLOADS_DIR, BACKUPS_DIR].forEach(d => { if (!existsSync(d)) mkdirSync(d, { recursive: true }); });
+
+function loadDevConfig() {
+  try {
+    const p = join(DATA_DIR, 'devConfig.json');
+    if (existsSync(p)) return JSON.parse(readFileSync(p, 'utf-8'));
+  } catch {}
+  return null;
+}
+
+function saveDevConfig(config) {
+  writeFileSync(join(DATA_DIR, 'devConfig.json'), JSON.stringify(config), 'utf-8');
+}
+
+function createDevBackup() {
+  const config = loadDevConfig();
+  if (!config) return null;
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const name = `backup-${ts}.json`;
+  writeFileSync(join(BACKUPS_DIR, name), JSON.stringify(config), 'utf-8');
+  // Keep max 20 backups
+  const all = readdirSync(BACKUPS_DIR).filter(f => f.endsWith('.json')).sort();
+  while (all.length > 20) {
+    try { unlinkSync(join(BACKUPS_DIR, all.shift())); } catch {}
+  }
+  return name;
+}
+
+function devAuth(req, res, next) {
+  if (req.body?.password !== DEV_PASSWORD) return res.status(403).json({ error: 'Invalid password' });
+  next();
+}
 
 // ============================================================
 // ROOMS STATE
@@ -492,6 +536,10 @@ io.on('connection', (socket) => {
   console.log('Player connected:', socket.id);
   socket.emit("room_list", getRoomList());
 
+  // Send current dev config to new connections
+  const devCfg = loadDevConfig();
+  if (devCfg) socket.emit("dev_config_updated", devCfg);
+
   // --- LOBBY ---
   socket.on('get_rooms', () => socket.emit("room_list", getRoomList()));
 
@@ -706,6 +754,115 @@ setInterval(() => {
   }
   broadcastRoomList();
 }, 5 * 60 * 1000);
+
+// ============================================================
+// DEV CONFIG API ENDPOINTS
+// ============================================================
+
+// Auth check
+app.post('/api/dev/auth', (req, res) => {
+  res.json({ success: req.body?.password === DEV_PASSWORD });
+});
+
+// Get config (public — all players load it)
+app.get('/api/dev/config', (req, res) => {
+  res.json({ config: loadDevConfig() });
+});
+
+// Save config (auth required, auto-backup)
+app.post('/api/dev/config', devAuth, (req, res) => {
+  createDevBackup();
+  saveDevConfig(req.body.config);
+  io.emit('dev_config_updated', req.body.config);
+  res.json({ success: true });
+});
+
+// Reset to defaults (auth required)
+app.post('/api/dev/reset', devAuth, (req, res) => {
+  createDevBackup();
+  const p = join(DATA_DIR, 'devConfig.json');
+  if (existsSync(p)) unlinkSync(p);
+  io.emit('dev_config_updated', null);
+  res.json({ success: true });
+});
+
+// Upload audio file (stored on disk, not in JSON)
+app.post('/api/dev/upload/audio', devAuth, (req, res) => {
+  const { key, data, filename } = req.body;
+  if (!key || !data) return res.status(400).json({ error: 'Missing key or data' });
+  try {
+    const ext = (filename || 'audio.mp3').split('.').pop() || 'mp3';
+    const safeName = key.replace(/[^a-zA-Z0-9_-]/g, '') + '.' + ext;
+    const base64 = data.includes(',') ? data.split(',')[1] : data;
+    writeFileSync(join(UPLOADS_DIR, safeName), Buffer.from(base64, 'base64'));
+    const url = `/api/dev/audio/${safeName}`;
+    // Update config with audio URL
+    const config = loadDevConfig() || {};
+    if (!config.audio) config.audio = {};
+    config.audio[key] = url;
+    saveDevConfig(config);
+    io.emit('dev_config_updated', config);
+    res.json({ success: true, url });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete audio file
+app.post('/api/dev/delete/audio', devAuth, (req, res) => {
+  const { key } = req.body;
+  if (!key) return res.status(400).json({ error: 'Missing key' });
+  // Remove file
+  const files = readdirSync(UPLOADS_DIR).filter(f => f.startsWith(key.replace(/[^a-zA-Z0-9_-]/g, '')));
+  files.forEach(f => { try { unlinkSync(join(UPLOADS_DIR, f)); } catch {} });
+  // Remove from config
+  const config = loadDevConfig() || {};
+  if (config.audio) { delete config.audio[key]; saveDevConfig(config); }
+  io.emit('dev_config_updated', config);
+  res.json({ success: true });
+});
+
+// Serve uploaded audio files
+app.use('/api/dev/audio', express.static(UPLOADS_DIR));
+
+// List backups
+app.get('/api/dev/backups', (req, res) => {
+  try {
+    const files = readdirSync(BACKUPS_DIR).filter(f => f.endsWith('.json')).sort().reverse();
+    res.json({ backups: files });
+  } catch { res.json({ backups: [] }); }
+});
+
+// Restore from backup (auth required)
+app.post('/api/dev/restore', devAuth, (req, res) => {
+  const file = req.body.backup;
+  if (!file || !file.endsWith('.json') || file.includes('..')) return res.status(400).json({ error: 'Invalid backup' });
+  try {
+    const p = join(BACKUPS_DIR, file);
+    if (!existsSync(p)) return res.status(404).json({ error: 'Backup not found' });
+    const config = JSON.parse(readFileSync(p, 'utf-8'));
+    createDevBackup();
+    saveDevConfig(config);
+    io.emit('dev_config_updated', config);
+    res.json({ success: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Export config
+app.get('/api/dev/export', (req, res) => {
+  const config = loadDevConfig();
+  res.setHeader('Content-Disposition', 'attachment; filename=kirshas-dev-config.json');
+  res.json(config || {});
+});
+
+// Import config (auth required)
+app.post('/api/dev/import', devAuth, (req, res) => {
+  if (!req.body.config) return res.status(400).json({ error: 'Missing config' });
+  createDevBackup();
+  saveDevConfig(req.body.config);
+  io.emit('dev_config_updated', req.body.config);
+  res.json({ success: true });
+});
 
 // Health check
 app.get('/health', (req, res) => {
