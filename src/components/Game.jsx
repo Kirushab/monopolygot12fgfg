@@ -1,14 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { T, HOUSES, TOKENS, AI_NAMES, BOARD_SIZE, CORNER } from '../gameData';
 import { S, btn, btnOutline } from '../theme';
-import { startAudio, playDiceSound, playMoveSound, playBuySound, playClickSound, setCustomAudio, playMusic, stopMusic } from '../sounds';
+import { startAudio, playDiceSound, playMoveSound, playBuySound, playClickSound, setCustomAudio, startPlaylist, stopMusic, getCurrentPlaylistMode, setMusicVolume } from '../sounds';
 import {
   deepClone, shuffle, rollDie,
   getCellCenter,
   createInitialState, calcWealthStatic, handleLanding
 } from '../gameEngine';
 import useMultiplayer from '../hooks/useMultiplayer';
-import { getSocket } from '../socket';
 
 import MainMenu from './MainMenu';
 import Settings from './Settings';
@@ -18,6 +17,7 @@ import GameSetup from './GameSetup';
 import Board from './Board';
 import PlayerPanel from './PlayerPanel';
 import PropertyCard from './PropertyCard';
+import PropertyManager from './PropertyManager';
 import ActionPanel from './ActionPanel';
 import BankruptVote from './BankruptVote';
 import Chat from './Chat';
@@ -47,6 +47,7 @@ export default function Game() {
   const [chatOpen, setChatOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [devPanelOpen, setDevPanelOpen] = useState(false);
+  const [propManagerOpen, setPropManagerOpen] = useState(false);
   const [devData, setDevData] = useState(loadDevData);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
@@ -60,7 +61,10 @@ export default function Game() {
   const t = T[lang];
   const aiTimerRef = useRef(null);
 
-  // --- FETCH DEV CONFIG FROM SERVER ---
+  // Multiplayer hook
+  const mp = useMultiplayer();
+
+  // --- FETCH DEV CONFIG FROM SERVER ON MOUNT ---
   useEffect(() => {
     fetch('/api/dev/config')
       .then(r => r.json())
@@ -75,7 +79,7 @@ export default function Game() {
 
   // --- LISTEN FOR DEV CONFIG UPDATES VIA SOCKET ---
   useEffect(() => {
-    const socket = getSocket();
+    const socket = mp.socket;
     if (!socket) return;
     const handler = (config) => {
       const d = config || {};
@@ -84,9 +88,9 @@ export default function Game() {
     };
     socket.on('dev_config_updated', handler);
     return () => socket.off('dev_config_updated', handler);
-  }, []);
+  }, [mp.socket]);
 
-  // --- INJECT CSS FOR ACCENT COLOR (hover effects, shimmer, animations) ---
+  // --- INJECT CSS FOR ACCENT COLOR ---
   useEffect(() => {
     const accent = devData?.accentColor || '#c9a84c';
     const n = parseInt(accent.slice(1), 16);
@@ -110,17 +114,35 @@ export default function Game() {
       }
       @keyframes shimmer { to { background-position: 200% center; } }
       @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+      @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      @keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
     `;
     return () => { style.remove(); };
   }, [devData?.accentColor]);
-
-  // Multiplayer hook
-  const mp = useMultiplayer();
 
   // --- SYNC CUSTOM AUDIO FROM DEV DATA ---
   useEffect(() => {
     if (devData?.audio) setCustomAudio(devData.audio);
   }, [devData?.audio]);
+
+  // --- MUSIC PLAYLIST: switch between menu and game ---
+  useEffect(() => {
+    const vol = devData?.volume?.music ?? musicVol;
+    if (screen === "menu") {
+      if (getCurrentPlaylistMode() !== 'menu') {
+        startPlaylist('menu', vol);
+      }
+    } else if (screen === "game" && game) {
+      if (getCurrentPlaylistMode() !== 'game') {
+        startPlaylist('game', vol);
+      }
+    }
+  }, [screen, game, devData?.volume?.music, musicVol]);
+
+  // Update music volume when changed
+  useEffect(() => {
+    setMusicVolume(devData?.volume?.music ?? musicVol);
+  }, [devData?.volume?.music, musicVol]);
 
   // Sync online game state from server
   useEffect(() => {
@@ -139,7 +161,7 @@ export default function Game() {
 
   // --- GAME STATE UPDATER (local only) ---
   const updateGame = useCallback((updater) => {
-    if (isOnline) return; // Online mode: server is authoritative
+    if (isOnline) return;
     setGame((prev) => {
       if (!prev) return prev;
       const next = deepClone(prev);
@@ -522,86 +544,90 @@ export default function Game() {
     setScreen("menu");
   }, [mp]);
 
-  // ========== SCREEN ROUTING ==========
+  // ========== SCREEN RENDERING ==========
+  const ac = devData?.accentColor || S.gold;
+  const f = devData?.font || S.font;
 
-  if (screen === "menu") {
-    return <MainMenu lang={lang} setLang={setLang} setScreen={setScreen} effectsVol={effectsVol} t={t} />;
-  }
-
-  if (screen === "settings") {
-    return <Settings lang={lang} setLang={setLang} setScreen={setScreen} musicVol={musicVol} setMusicVol={setMusicVol} effectsVol={effectsVol} setEffectsVol={setEffectsVol} t={t} />;
-  }
-
-  if (screen === "friends") {
-    // If online game started, switch to game screen
-    if (mp.onlineGame && !isOnline) {
-      setIsOnline(true);
-      setChatMessages([]);
-      setScreen("game");
-    }
-    return <Lobby setScreen={setScreen} lang={lang} t={t} mp={mp} />;
-  }
-
-  if (screen === "rules") {
-    return <Rules setScreen={setScreen} t={t} />;
-  }
-
-  if (screen === "setup") {
-    return <GameSetup lang={lang} config={config} setConfig={setConfig} setScreen={setScreen} startGame={startLocalGame} t={t} />;
-  }
-
-  // ========== GAME SCREEN ==========
-  if (screen === "game" && game) {
-    const cp = game.players[game.currentPlayer];
-    const cells = game.cells;
-    const isMyTurn = isOnline ? mp.isMyTurn : !cp.isAI;
-
-    // Victory
-    if (game.phase === "gameover" && game.winner !== null) {
-      return (
-        <VictoryScreen
-          game={game}
-          t={t}
-          onMenu={() => { if (isOnline) leaveOnlineGame(); else { setGame(null); setScreen("menu"); } }}
-          onNewGame={() => { if (isOnline) leaveOnlineGame(); else startLocalGame(); }}
-        />
-      );
+  const renderScreen = () => {
+    if (screen === "menu") {
+      return <MainMenu lang={lang} setLang={setLang} setScreen={setScreen} effectsVol={effectsVol} t={t} devData={devData} />;
     }
 
-    // Pause (local only)
-    if (!isOnline && game.paused) {
-      return (
-        <div style={{ minHeight: "100vh", background: S.bg, color: S.text, fontFamily: S.font, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
-          <h2 style={{ color: S.gold }}>⏸ {t.pause}</h2>
-          <button onClick={() => updateGame((g) => { g.paused = false; })} style={btn()}>{t.resume}</button>
-          <button onClick={() => { setGame(null); setScreen("menu"); }} style={btnOutline()}>{t.quit}</button>
-        </div>
-      );
+    if (screen === "settings") {
+      return <Settings lang={lang} setLang={setLang} setScreen={setScreen} musicVol={musicVol} setMusicVol={setMusicVol} effectsVol={effectsVol} setEffectsVol={setEffectsVol} t={t} />;
     }
 
-    return (
-      <div style={{ height: "100vh", background: S.bg, color: S.text, fontFamily: devData?.font || S.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        {/* TOP BAR */}
-        <div style={{ background: S.bg2, borderBottom: `1px solid ${S.border}`, padding: "8px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, fontFamily: devData?.font || S.font }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: devData?.accentColor || S.gold, fontWeight: "bold", letterSpacing: 2 }}>{devData?.centerEmoji || "⚔️"} {devData?.gameTitle || "KIRSHAS"} {devData?.gameSubtitle || "MONOPOLIA"}</span>
-            <span style={{ color: S.textDim, fontSize: 12, letterSpacing: 1 }}>R{game.roundCount}</span>
-            {isOnline && <span style={{ fontSize: 10, color: mp.connected ? "#50c878" : "#ff6b6b", letterSpacing: 1 }}>● {lang === "ru" ? "ОНЛАЙН" : "ONLINE"}</span>}
+    if (screen === "friends") {
+      if (mp.onlineGame && !isOnline) {
+        setIsOnline(true);
+        setChatMessages([]);
+        setScreen("game");
+      }
+      return <Lobby setScreen={setScreen} lang={lang} t={t} mp={mp} />;
+    }
+
+    if (screen === "rules") {
+      return <Rules setScreen={setScreen} t={t} />;
+    }
+
+    if (screen === "setup") {
+      return <GameSetup lang={lang} config={config} setConfig={setConfig} setScreen={setScreen} startGame={startLocalGame} t={t} />;
+    }
+
+    // ========== GAME SCREEN ==========
+    if (screen === "game" && game) {
+      const cp = game.players[game.currentPlayer];
+      const cells = game.cells;
+      const isMyTurn = isOnline ? mp.isMyTurn : !cp.isAI;
+
+      // Victory
+      if (game.phase === "gameover" && game.winner !== null) {
+        return (
+          <VictoryScreen
+            game={game}
+            t={t}
+            onMenu={() => { if (isOnline) leaveOnlineGame(); else { setGame(null); setScreen("menu"); } }}
+            onNewGame={() => { if (isOnline) leaveOnlineGame(); else startLocalGame(); }}
+          />
+        );
+      }
+
+      // Pause (local only)
+      if (!isOnline && game.paused) {
+        return (
+          <div style={{ minHeight: "100vh", background: S.bg, color: S.text, fontFamily: f, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16 }}>
+            <h2 style={{ color: ac }}>⏸ {t.pause}</h2>
+            <button onClick={() => updateGame((g) => { g.paused = false; })} style={btn()}>{t.resume}</button>
+            <button onClick={() => { setGame(null); setScreen("menu"); }} style={btnOutline()}>{t.quit}</button>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(() => { const ac = devData?.accentColor || S.gold; const f = devData?.font || S.font; const bs = (active) => ({ background: active ? ac + "33" : "transparent", color: ac, border: `1px solid ${ac}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: f }); return (<>
-            <button onClick={() => setDevPanelOpen(!devPanelOpen)} style={bs(devPanelOpen)} title="Dev Panel">🔧</button>
-            <button onClick={() => setChatOpen(!chatOpen)} style={bs(chatOpen)}>💬</button>
-            <button onClick={() => setPanelOpen(!panelOpen)} style={bs(panelOpen)}>☰</button>
-            {!isOnline && <button onClick={() => updateGame((g) => { g.paused = true; })} style={bs(false)}>⏸</button>}
-            {isOnline && <button onClick={leaveOnlineGame} style={{ background: "transparent", color: "#ff6b6b", border: "1px solid #ff6b6b44", padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: f }}>{lang === "ru" ? "Выйти" : "Leave"}</button>}
-            </>); })()}
-          </div>
-        </div>
+        );
+      }
 
-        <div className="game-layout" style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
-          {/* BOARD */}
-          <Board
+      return (
+        <div style={{ height: "100vh", background: S.bg, color: S.text, fontFamily: f, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* TOP BAR */}
+          <div style={{ background: S.bg2, borderBottom: `1px solid ${S.border}`, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, fontFamily: f, flexWrap: "wrap", gap: 4 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {devData?.logoImage
+                ? <img src={devData.logoImage} style={{ height: 22, objectFit: "contain" }} />
+                : <span style={{ color: ac, fontWeight: "bold", letterSpacing: 2, fontSize: 13 }}>{devData?.centerEmoji || "⚔️"} {devData?.gameTitle || "KIRSHAS"}</span>
+              }
+              <span style={{ color: S.textDim, fontSize: 11 }}>R{game.roundCount}</span>
+              {isOnline && <span style={{ fontSize: 9, color: mp.connected ? "#50c878" : "#ff6b6b" }}>● {lang === "ru" ? "ОНЛАЙН" : "ONLINE"}</span>}
+            </div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {(() => { const bs = (active) => ({ background: active ? ac + "33" : "transparent", color: ac, border: `1px solid ${ac}44`, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: f }); return (<>
+              <button onClick={() => setPropManagerOpen(!propManagerOpen)} style={bs(propManagerOpen)} title={lang === "ru" ? "Мои владения" : "Properties"}>🏘</button>
+              <button onClick={() => setChatOpen(!chatOpen)} style={bs(chatOpen)}>💬</button>
+              <button onClick={() => setPanelOpen(!panelOpen)} style={bs(panelOpen)}>☰</button>
+              {!isOnline && <button onClick={() => updateGame((g) => { g.paused = true; })} style={bs(false)}>⏸</button>}
+              {isOnline && <button onClick={leaveOnlineGame} style={{ background: "transparent", color: "#ff6b6b", border: "1px solid #ff6b6b44", padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: f }}>{lang === "ru" ? "Выйти" : "Leave"}</button>}
+              </>); })()}
+            </div>
+          </div>
+
+          <div className="game-layout" style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
+            <Board
               game={game}
               selectedCell={selectedCell}
               setSelectedCell={setSelectedCell}
@@ -612,64 +638,101 @@ export default function Game() {
               devData={devData}
             />
 
-          {/* Panel toggle */}
-          {!panelOpen && (
-            <button onClick={() => setPanelOpen(true)} style={{ position: "absolute", right: 10, top: 10, zIndex: 15, background: S.bg2, color: S.gold, border: `1px solid ${S.gold}44`, borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontFamily: S.font, fontSize: 13, boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}>☰ {lang === "ru" ? "Панель" : "Panel"}</button>
-          )}
+            {!panelOpen && (
+              <button onClick={() => setPanelOpen(true)} style={{ position: "absolute", right: 10, top: 10, zIndex: 15, background: S.bg2, color: ac, border: `1px solid ${ac}44`, borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontFamily: f, fontSize: 13, boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}>☰</button>
+            )}
 
-          {/* RIGHT PANEL */}
-          <div className="game-panel" style={{ width: panelOpen ? 300 : 0, background: S.bg2, borderLeft: panelOpen ? `1px solid ${S.border}` : "none", display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0, transition: "width 0.3s ease" }}>
-            <PlayerPanel game={game} lang={lang} t={t} onClose={() => setPanelOpen(false)} />
+            <div className="game-panel" style={{ width: panelOpen ? Math.min(300, window.innerWidth * 0.4) : 0, background: S.bg2, borderLeft: panelOpen ? `1px solid ${S.border}` : "none", display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0, transition: "width 0.3s ease" }}>
+              <PlayerPanel game={game} lang={lang} t={t} onClose={() => setPanelOpen(false)} />
 
-            {selectedCell !== null && cells[selectedCell] && (
-              <PropertyCard
-                cell={cells[selectedCell]}
-                owner={getPropertyOwner(selectedCell)}
-                lang={lang}
-                t={t}
-                onClose={() => setSelectedCell(null)}
+              {selectedCell !== null && cells[selectedCell] && (
+                <PropertyCard
+                  cell={cells[selectedCell]}
+                  owner={getPropertyOwner(selectedCell)}
+                  lang={lang}
+                  t={t}
+                  onClose={() => setSelectedCell(null)}
+                />
+              )}
+
+              {game.phase === "bankruptVote" && (
+                <div style={{ padding: 10 }}>
+                  <BankruptVote game={game} t={t} lendAmount={lendAmount} setLendAmount={setLendAmount} doLend={doLend} skipBankruptVote={skipBankruptVote} />
+                </div>
+              )}
+
+              <ActionPanel
+                game={game} cp={cp} cells={cells} isMyTurn={isMyTurn} lang={lang} t={t}
+                animating={animating} diceAnim={diceAnim}
+                doRoll={doRoll} doBuy={doBuy} startAuction={startAuction} endTurn={endTurn}
+                payJail={payJail} useFreedomCard={useFreedomCard}
+                doBuild={doBuild} doMortgage={doMortgage} doRedeem={doRedeem}
+                auctionBid={auctionBid} setAuctionBid={setAuctionBid} doAuctionBid={doAuctionBid}
+              />
+            </div>
+
+            {chatOpen && (
+              <Chat
+                lang={lang} t={t}
+                chatMessages={chatMessages} chatInput={chatInput}
+                setChatInput={setChatInput} sendChat={sendChat}
+                onClose={() => setChatOpen(false)} panelOpen={panelOpen}
               />
             )}
 
-            {game.phase === "bankruptVote" && (
-              <div style={{ padding: 10 }}>
-                <BankruptVote game={game} t={t} lendAmount={lendAmount} setLendAmount={setLendAmount} doLend={doLend} skipBankruptVote={skipBankruptVote} />
-              </div>
+            {/* Property Manager overlay */}
+            {propManagerOpen && (
+              <PropertyManager
+                game={game}
+                cp={cp}
+                isMyTurn={isMyTurn}
+                lang={lang}
+                t={t}
+                doBuild={doBuild}
+                doMortgage={doMortgage}
+                doRedeem={doRedeem}
+                onClose={() => setPropManagerOpen(false)}
+                devData={devData}
+              />
             )}
-
-            <ActionPanel
-              game={game} cp={cp} cells={cells} isMyTurn={isMyTurn} lang={lang} t={t}
-              animating={animating} diceAnim={diceAnim}
-              doRoll={doRoll} doBuy={doBuy} startAuction={startAuction} endTurn={endTurn}
-              payJail={payJail} useFreedomCard={useFreedomCard}
-              doBuild={doBuild} doMortgage={doMortgage} doRedeem={doRedeem}
-              auctionBid={auctionBid} setAuctionBid={setAuctionBid} doAuctionBid={doAuctionBid}
-            />
           </div>
-
-          {/* CHAT */}
-          {chatOpen && (
-            <Chat
-              lang={lang} t={t}
-              chatMessages={chatMessages} chatInput={chatInput}
-              setChatInput={setChatInput} sendChat={sendChat}
-              onClose={() => setChatOpen(false)} panelOpen={panelOpen}
-            />
-          )}
         </div>
+      );
+    }
 
-        {/* DEV PANEL */}
-        {devPanelOpen && (
-          <DevPanel
-            game={game}
-            devData={devData}
-            setDevData={setDevData}
-            onClose={() => setDevPanelOpen(false)}
-          />
-        )}
-      </div>
-    );
-  }
+    return null;
+  };
 
-  return null;
+  // ========== RENDER WITH GLOBAL DEV OVERLAY ==========
+  return (
+    <>
+      {renderScreen()}
+
+      {/* Floating Dev Button */}
+      <button
+        onClick={() => setDevPanelOpen(!devPanelOpen)}
+        title="Dev Panel"
+        style={{
+          position: "fixed", bottom: 16, right: 16, zIndex: 95,
+          width: 40, height: 40, borderRadius: "50%",
+          background: devPanelOpen ? ac + "33" : S.bg2,
+          color: ac, border: `1px solid ${ac}44`,
+          cursor: "pointer", fontSize: 18,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
+          fontFamily: f, transition: "all 0.2s ease",
+        }}
+      >🔧</button>
+
+      {/* Dev Panel Overlay */}
+      {devPanelOpen && (
+        <DevPanel
+          game={game}
+          devData={devData}
+          setDevData={setDevData}
+          onClose={() => setDevPanelOpen(false)}
+        />
+      )}
+    </>
+  );
 }

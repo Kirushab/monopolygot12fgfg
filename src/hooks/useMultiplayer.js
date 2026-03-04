@@ -99,6 +99,7 @@ export default function useMultiplayer() {
 
   return {
     connected,
+    socket: socketRef.current,
     socketId: socketRef.current?.id,
     roomList,
     roomState,
