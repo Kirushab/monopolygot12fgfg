@@ -3,8 +3,11 @@ import { HOUSES } from '../gameData';
 
 const BUILDING_ICONS = ['', '🏠', '🏠🏠', '🏠🏠🏠', '🏠🏠🏠🏠', '🏰'];
 
-export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, selected, isCurrent, onClick }) {
+export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, selected, isCurrent, onClick, devData }) {
   const house = cell.house ? HOUSES[cell.house] : null;
+  const customName = devData?.cellNames?.[cell.id];
+  const customTexture = devData?.cellTextures?.[cell.id];
+  const displayName = customName ?? cell.name;
 
   return (
     <div
@@ -45,20 +48,28 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
         <div style={{ position: "absolute", inset: 0, border: `1px solid ${owner.color}33`, pointerEvents: "none" }} />
       )}
 
-      {/* Cell icon */}
-      {cell.icon && (
+      {/* Cell icon — custom texture or emoji */}
+      {customTexture ? (
+        <img src={customTexture} style={{
+          width: isCorner ? 32 : 22,
+          height: isCorner ? 32 : 22,
+          objectFit: "contain",
+          marginTop: house ? 4 : 0,
+          filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))",
+        }} />
+      ) : cell.icon ? (
         <div style={{ fontSize: isCorner ? 22 : 15, filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))", marginTop: house ? 4 : 0 }}>{cell.icon}</div>
-      )}
+      ) : null}
 
       {/* Cell name */}
       <div style={{
         textAlign: "center", lineHeight: 1.15,
-        marginTop: house && !cell.icon ? 6 : 1,
+        marginTop: house && !cell.icon && !customTexture ? 6 : 1,
         fontWeight: isCorner ? "bold" : "normal",
         letterSpacing: 0.3, fontSize: isCorner ? 9 : 7,
         textShadow: "0 1px 2px rgba(0,0,0,0.5)",
       }}>
-        {cell.name?.length > 14 ? cell.name.slice(0, 12) + "…" : cell.name}
+        {displayName?.length > 14 ? displayName.slice(0, 12) + "…" : displayName}
       </div>
 
       {/* Price */}
@@ -91,7 +102,17 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
       {playersHere.length > 0 && (
         <div style={{ position: "absolute", bottom: 1, left: 1, display: "flex", gap: 0, flexWrap: "wrap" }}>
           {playersHere.map((p) => (
-            <span key={p.id} className="player-token" style={{ fontSize: isCorner ? 13 : 10, filter: `drop-shadow(0 1px 3px ${p.color}88)` }}>{p.token.emoji}</span>
+            devData?.tokenTextures?.[p.id] ? (
+              <img key={p.id} src={devData.tokenTextures[p.id]} style={{
+                width: isCorner ? 13 : 10,
+                height: isCorner ? 13 : 10,
+                borderRadius: "50%",
+                objectFit: "cover",
+                filter: `drop-shadow(0 1px 3px ${p.color}88)`,
+              }} />
+            ) : (
+              <span key={p.id} className="player-token" style={{ fontSize: isCorner ? 13 : 10, filter: `drop-shadow(0 1px 3px ${p.color}88)` }}>{p.token.emoji}</span>
+            )
           ))}
         </div>
       )}

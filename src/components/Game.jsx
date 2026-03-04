@@ -21,6 +21,7 @@ import ActionPanel from './ActionPanel';
 import BankruptVote from './BankruptVote';
 import Chat from './Chat';
 import VictoryScreen from './VictoryScreen';
+import DevPanel, { loadDevData } from './DevPanel';
 
 export default function Game() {
   const [lang, setLang] = useState("ru");
@@ -44,6 +45,8 @@ export default function Game() {
   });
   const [chatOpen, setChatOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
+  const [devPanelOpen, setDevPanelOpen] = useState(false);
+  const [devData, setDevData] = useState(loadDevData);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [selectedCell, setSelectedCell] = useState(null);
@@ -517,7 +520,7 @@ export default function Game() {
     }
 
     return (
-      <div style={{ minHeight: "100vh", background: S.bg, color: S.text, fontFamily: S.font, display: "flex", flexDirection: "column" }}>
+      <div style={{ height: "100vh", background: S.bg, color: S.text, fontFamily: S.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* TOP BAR */}
         <div style={{ background: S.bg2, borderBottom: `1px solid ${S.border}`, padding: "8px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, fontFamily: S.font }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -526,6 +529,7 @@ export default function Game() {
             {isOnline && <span style={{ fontSize: 10, color: mp.connected ? "#50c878" : "#ff6b6b", letterSpacing: 1 }}>● {lang === "ru" ? "ОНЛАЙН" : "ONLINE"}</span>}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setDevPanelOpen(!devPanelOpen)} style={{ background: devPanelOpen ? S.gold + "33" : "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }} title="Dev Panel">🔧</button>
             <button onClick={() => setChatOpen(!chatOpen)} style={{ background: chatOpen ? S.gold + "33" : "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }}>💬</button>
             <button onClick={() => setPanelOpen(!panelOpen)} style={{ background: panelOpen ? S.gold + "33" : "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }}>☰</button>
             {!isOnline && <button onClick={() => updateGame((g) => { g.paused = true; })} style={{ background: "transparent", color: S.gold, border: `1px solid ${S.gold}44`, padding: "4px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: S.font }}>⏸</button>}
@@ -543,6 +547,7 @@ export default function Game() {
               diceAnim={diceAnim}
               animPos={animPos}
               cp={cp}
+              devData={devData}
             />
 
           {/* Panel toggle */}
@@ -590,6 +595,16 @@ export default function Game() {
             />
           )}
         </div>
+
+        {/* DEV PANEL */}
+        {devPanelOpen && (
+          <DevPanel
+            game={game}
+            devData={devData}
+            setDevData={setDevData}
+            onClose={() => setDevPanelOpen(false)}
+          />
+        )}
       </div>
     );
   }
