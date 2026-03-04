@@ -12,7 +12,15 @@ const DEFAULT_DEV_DATA = {
   volume: { master: 1.0, music: 0.5, effects: 0.7, ambient: 0.3 },
   font: null, showGrid: true,
   layout: { emojiSize: null, titleSize: null, subtitleSize: null, diceSize: null, cellIconSize: null },
-  menuConfig: { backgrounds: [], slideshowInterval: 8, subtitle: null, buttonStyle: "default" },
+  menuConfig: {
+    backgrounds: [], slideshowInterval: 8, subtitle: null, buttonStyle: "default",
+    buttons: {},       // { play: { icon, label, color }, settings: { ... }, ... }
+    showParticles: true,
+    showGrid: true,
+    showVignette: true,
+    dragonButton: true,
+  },
+  flappyConfig: { dragonEmoji: null, pipeColor: null, bgColor: null, groundColor: null, dragonImage: null },
 };
 
 export function loadDevData() {
@@ -159,6 +167,7 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
       else if (uploadTarget?.startsWith("token:")) updateNested("tokenTextures", parseInt(uploadTarget.split(":")[1]), dataUrl);
       else if (uploadTarget?.startsWith("building:")) updateNested("buildingTextures", uploadTarget.split(":")[1], dataUrl);
       else if (uploadTarget?.startsWith("cellbg:")) updateNested("cellBgTextures", parseInt(uploadTarget.split(":")[1]), dataUrl);
+      else if (uploadTarget === "flappy_dragon") saveToServer({ ...devData, flappyConfig: { ...(devData.flappyConfig || {}), dragonImage: dataUrl } });
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -624,8 +633,8 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
         {/* ===================== MENU TAB ===================== */}
         {tab === "menu" && (<>
           <div style={section}>
-            <span style={label}>Фоны главного меню (слайдшоу)</span>
-            <div style={{ fontSize: 9, color: S.textDim, marginBottom: 6 }}>Загрузите изображения — они будут чередоваться как фон меню.</div>
+            <span style={label}>Фоны меню (слайдшоу)</span>
+            <div style={{ fontSize: 9, color: S.textDim, marginBottom: 6 }}>Загрузите картинки — они чередуются как фон.</div>
             <button onClick={() => menuBgRef.current?.click()} style={smallBtn}>+ Добавить фон</button>
             {(devData.menuConfig?.backgrounds || []).length > 0 && (
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 8 }}>
@@ -637,35 +646,129 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
                 ))}
               </div>
             )}
-          </div>
-
-          <div style={section}>
-            <span style={label}>Интервал смены фона</span>
-            <div style={row}>
+            <div style={{ ...row, marginTop: 6 }}>
+              <span style={{ fontSize: 11, color: S.textDim, minWidth: 60 }}>Интервал</span>
               <input type="range" min="3" max="30" step="1" value={devData.menuConfig?.slideshowInterval || 8}
                 onChange={(e) => updateMenu("slideshowInterval", parseInt(e.target.value))} style={sliderStyle} />
-              <span style={{ fontSize: 10, color: S.textDim, minWidth: 30 }}>{devData.menuConfig?.slideshowInterval || 8}с</span>
+              <span style={{ fontSize: 10, color: S.textDim, minWidth: 25 }}>{devData.menuConfig?.slideshowInterval || 8}с</span>
             </div>
           </div>
 
           <div style={section}>
-            <span style={label}>Подзаголовок меню</span>
+            <span style={label}>Подзаголовок</span>
             <input type="text" value={devData.menuConfig?.subtitle || "Game of Thrones Edition"} onChange={(e) => updateMenu("subtitle", e.target.value)}
               style={{ ...textInput(!!devData.menuConfig?.subtitle), width: "100%" }} />
           </div>
 
           <div style={section}>
             <span style={label}>Стиль кнопок</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              {[["default", "Стандарт"], ["glass", "Стекло"]].map(([val, lbl]) => (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {[["default", "Стандарт"], ["glass", "Стекло"], ["neon", "Неон"], ["minimal", "Минимал"]].map(([val, lbl]) => (
                 <button key={val} onClick={() => updateMenu("buttonStyle", val)} style={{
-                  padding: "6px 14px", fontSize: 11, cursor: "pointer",
+                  padding: "5px 12px", fontSize: 10, cursor: "pointer",
                   background: (devData.menuConfig?.buttonStyle || "default") === val ? `${accent}33` : S.bg,
                   color: (devData.menuConfig?.buttonStyle || "default") === val ? accent : S.textDim,
                   border: `1px solid ${(devData.menuConfig?.buttonStyle || "default") === val ? accent + "66" : S.border}`,
                   borderRadius: 4, fontFamily: devData?.font || S.font,
                 }}>{lbl}</button>
               ))}
+            </div>
+          </div>
+
+          {/* Per-button customization */}
+          <div style={section}>
+            <span style={label}>Кнопки меню</span>
+            <div style={{ fontSize: 9, color: S.textDim, marginBottom: 6 }}>Иконка, текст и цвет каждой кнопки.</div>
+            {[
+              ["play", "ИГРАТЬ", "⚔️"],
+              ["settings", "НАСТРОЙКИ", "⚙️"],
+              ["friends", "ДРУЗЬЯ", "👥"],
+              ["rules", "ПРАВИЛА", "📜"],
+            ].map(([key, defaultLabel, defaultIcon]) => {
+              const btnCfg = devData.menuConfig?.buttons?.[key] || {};
+              const updateBtn = (field, value) => {
+                const buttons = { ...(devData.menuConfig?.buttons || {}) };
+                buttons[key] = { ...(buttons[key] || {}), [field]: value };
+                updateMenu("buttons", buttons);
+              };
+              const clearBtn2 = (field) => {
+                const buttons = { ...(devData.menuConfig?.buttons || {}) };
+                if (buttons[key]) { delete buttons[key][field]; if (Object.keys(buttons[key]).length === 0) delete buttons[key]; }
+                updateMenu("buttons", buttons);
+              };
+              return (
+                <div key={key} style={{ marginBottom: 8, padding: 6, background: S.bg, borderRadius: 6, border: `1px solid ${S.border}` }}>
+                  <div style={{ fontSize: 10, color: accent, fontWeight: "bold", marginBottom: 4 }}>{defaultLabel}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <span style={{ fontSize: 9, color: S.textDim }}>Иконка</span>
+                      <input type="text" value={btnCfg.icon ?? defaultIcon} onChange={(e) => updateBtn("icon", e.target.value)}
+                        style={{ width: 36, textAlign: "center", fontSize: 16, padding: "2px", background: S.bg3, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text }} />
+                      {btnCfg.icon && <button onClick={() => clearBtn2("icon")} style={clearBtn}>↩</button>}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", flex: 1, minWidth: 100 }}>
+                      <span style={{ fontSize: 9, color: S.textDim }}>Текст</span>
+                      <input type="text" value={btnCfg.label ?? ""} onChange={(e) => updateBtn("label", e.target.value)}
+                        placeholder={defaultLabel}
+                        style={{ ...textInput(!!btnCfg.label), flex: 1 }} />
+                      {btnCfg.label && <button onClick={() => clearBtn2("label")} style={clearBtn}>↩</button>}
+                    </div>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <span style={{ fontSize: 9, color: S.textDim }}>Цвет</span>
+                      <input type="color" value={btnCfg.color || accent} onChange={(e) => updateBtn("color", e.target.value)} style={colorInput} />
+                      {btnCfg.color && <button onClick={() => clearBtn2("color")} style={clearBtn}>↩</button>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Menu toggles */}
+          <div style={section}>
+            <span style={label}>Элементы меню</span>
+            {[
+              ["showParticles", "Частицы"],
+              ["showGrid", "Сетка"],
+              ["showVignette", "Виньетка"],
+              ["dragonButton", "Кнопка дракона (мини-игра)"],
+            ].map(([key, lbl]) => (
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 11, color: S.text, marginBottom: 4 }}>
+                <input type="checkbox" checked={devData.menuConfig?.[key] !== false} onChange={(e) => updateMenu(key, e.target.checked)} style={{ accentColor: accent }} />
+                {lbl}
+              </label>
+            ))}
+          </div>
+
+          {/* Flappy Dragon config */}
+          <div style={section}>
+            <span style={label}>Flappy Dragon (мини-игра)</span>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: S.textDim }}>Дракон</span>
+              <input type="text" value={devData.flappyConfig?.dragonEmoji || "🐉"} onChange={(e) => saveToServer({ ...devData, flappyConfig: { ...(devData.flappyConfig || {}), dragonEmoji: e.target.value } })}
+                style={{ width: 40, textAlign: "center", fontSize: 18, padding: "2px", background: S.bg, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text }} />
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 6, flexWrap: "wrap" }}>
+              {[
+                ["pipeColor", "Трубы", "#50c878"],
+                ["bgColor", "Фон", "#0a0a1a"],
+                ["groundColor", "Земля", "#1a1a2e"],
+              ].map(([key, lbl, def]) => (
+                <div key={key} style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  <span style={{ fontSize: 9, color: S.textDim }}>{lbl}</span>
+                  <input type="color" value={devData.flappyConfig?.[key] || def} onChange={(e) => saveToServer({ ...devData, flappyConfig: { ...(devData.flappyConfig || {}), [key]: e.target.value } })} style={colorInput} />
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 10, color: S.textDim, marginBottom: 4 }}>Картинка дракона</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <button onClick={() => { setUploadTarget("flappy_dragon"); setTimeout(() => fileRef.current?.click(), 0); }} style={smallBtn}>
+                {devData.flappyConfig?.dragonImage ? "Заменить" : "Загрузить"}
+              </button>
+              {devData.flappyConfig?.dragonImage && (<>
+                <img src={devData.flappyConfig.dragonImage} style={{ width: 24, height: 24, objectFit: "contain" }} />
+                <button onClick={() => saveToServer({ ...devData, flappyConfig: { ...(devData.flappyConfig || {}), dragonImage: null } })} style={clearBtn}>✕</button>
+              </>)}
             </div>
           </div>
         </>)}

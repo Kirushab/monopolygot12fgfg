@@ -23,6 +23,7 @@ import BankruptVote from './BankruptVote';
 import Chat from './Chat';
 import VictoryScreen from './VictoryScreen';
 import DevPanel, { loadDevData } from './DevPanel';
+import FlappyDragon from './FlappyDragon';
 
 export default function Game() {
   const [lang, setLang] = useState("ru");
@@ -48,6 +49,7 @@ export default function Game() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [devPanelOpen, setDevPanelOpen] = useState(false);
   const [propManagerOpen, setPropManagerOpen] = useState(false);
+  const [flappyOpen, setFlappyOpen] = useState(false);
   const [devData, setDevData] = useState(loadDevData);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
@@ -550,7 +552,7 @@ export default function Game() {
 
   const renderScreen = () => {
     if (screen === "menu") {
-      return <MainMenu lang={lang} setLang={setLang} setScreen={setScreen} effectsVol={effectsVol} t={t} devData={devData} />;
+      return <MainMenu lang={lang} setLang={setLang} setScreen={setScreen} effectsVol={effectsVol} t={t} devData={devData} onFlappy={() => setFlappyOpen(true)} />;
     }
 
     if (screen === "settings") {
@@ -731,6 +733,14 @@ export default function Game() {
           devData={devData}
           setDevData={setDevData}
           onClose={() => setDevPanelOpen(false)}
+        />
+      )}
+
+      {/* Flappy Dragon Mini-Game */}
+      {flappyOpen && (
+        <FlappyDragon
+          onClose={() => setFlappyOpen(false)}
+          devData={devData}
         />
       )}
     </>

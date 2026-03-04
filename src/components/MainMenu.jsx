@@ -37,7 +37,7 @@ function Particles({ accent }) {
   );
 }
 
-export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devData }) {
+export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devData, onFlappy }) {
   const accent = devData?.accentColor || S.gold;
   const font = devData?.font || S.font;
   const logoImage = devData?.logoImage;
@@ -51,6 +51,11 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
   const slideshowInterval = (menuConfig.slideshowInterval || 8) * 1000;
   const menuSubtitleText = menuConfig.subtitle || "Game of Thrones Edition";
   const menuButtonStyle = menuConfig.buttonStyle || "default";
+  const buttons = menuConfig.buttons || {};
+  const showParticles = menuConfig.showParticles !== false;
+  const showGrid = menuConfig.showGrid !== false;
+  const showVignette = menuConfig.showVignette !== false;
+  const showDragon = menuConfig.dragonButton !== false;
 
   // Background slideshow
   const [bgIndex, setBgIndex] = useState(0);
@@ -81,10 +86,8 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
         musicStarted.current = true;
       } catch {}
     };
-    // Try on user interaction
     const handler = () => { tryStart(); document.removeEventListener('click', handler); };
     document.addEventListener('click', handler);
-    // Also try immediately
     tryStart();
     return () => document.removeEventListener('click', handler);
   }, [devData?.volume?.music]);
@@ -94,16 +97,63 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
     setScreen(screen);
   };
 
-  const btnStyle = (extra) => {
+  // Button style factory
+  const makeButtonStyle = (key, isPrimary, extra = {}) => {
+    const btnCfg = buttons[key] || {};
+    const color = btnCfg.color || accent;
+    const base = isPrimary
+      ? { padding: "16px 60px", fontSize: 20, ...extra }
+      : { padding: "12px 50px", ...extra };
+
     if (menuButtonStyle === "glass") {
       return {
-        ...btnOutline(extra),
+        ...btnOutline(base),
         background: "rgba(255,255,255,0.05)",
         backdropFilter: "blur(10px)",
-        border: `1px solid ${rgba(accent, 0.3)}`,
+        border: `1px solid ${rgba(color, 0.3)}`,
+        color: S.text,
       };
     }
-    return extra?.primary ? btn(extra) : btnOutline(extra);
+    if (menuButtonStyle === "neon") {
+      return {
+        ...btnOutline(base),
+        background: "transparent",
+        border: `1px solid ${color}`,
+        color,
+        boxShadow: `0 0 10px ${rgba(color, 0.3)}, inset 0 0 10px ${rgba(color, 0.1)}`,
+        textShadow: `0 0 8px ${rgba(color, 0.5)}`,
+      };
+    }
+    if (menuButtonStyle === "minimal") {
+      return {
+        background: "transparent",
+        border: "none",
+        borderBottom: `2px solid ${rgba(color, 0.3)}`,
+        color: S.text,
+        padding: base.padding,
+        fontSize: base.fontSize || 14,
+        cursor: "pointer",
+        fontFamily: font,
+        fontWeight: isPrimary ? "bold" : "normal",
+        letterSpacing: 2,
+      };
+    }
+    if (isPrimary) {
+      return {
+        ...btn(base),
+        background: `linear-gradient(135deg, ${color}, ${rgba(color, 0.7)})`,
+        boxShadow: `0 4px 20px ${rgba(color, 0.3)}`,
+        animation: "glow 3s ease-in-out infinite",
+      };
+    }
+    return btnOutline(base);
+  };
+
+  const getButtonLabel = (key, defaultLabel) => {
+    const cfg = buttons[key] || {};
+    const icon = cfg.icon || '';
+    const label = cfg.label || defaultLabel;
+    return icon ? `${icon} ${label}` : label;
   };
 
   return (
@@ -129,12 +179,38 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
       )}
 
       {/* Grid pattern */}
-      <div style={{ position: "absolute", inset: 0, opacity: 0.05, backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 50px, ${rgba(accent, 0.3)} 50px, ${rgba(accent, 0.3)} 51px), repeating-linear-gradient(90deg, transparent, transparent 50px, ${rgba(accent, 0.3)} 50px, ${rgba(accent, 0.3)} 51px)`, pointerEvents: "none" }} />
+      {showGrid && (
+        <div style={{ position: "absolute", inset: 0, opacity: 0.05, backgroundImage: `repeating-linear-gradient(0deg, transparent, transparent 50px, ${rgba(accent, 0.3)} 50px, ${rgba(accent, 0.3)} 51px), repeating-linear-gradient(90deg, transparent, transparent 50px, ${rgba(accent, 0.3)} 50px, ${rgba(accent, 0.3)} 51px)`, pointerEvents: "none" }} />
+      )}
 
-      <Particles accent={accent} />
+      {showParticles && <Particles accent={accent} />}
 
       {/* Vignette */}
-      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%)", pointerEvents: "none" }} />
+      {showVignette && (
+        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.6) 100%)", pointerEvents: "none" }} />
+      )}
+
+      {/* Dragon mini-game button */}
+      {showDragon && onFlappy && (
+        <button
+          onClick={() => { playClickSound(effectsVol); onFlappy(); }}
+          title="Flappy Dragon"
+          style={{
+            position: "absolute", top: 16, left: 16, zIndex: 5,
+            background: "rgba(0,0,0,0.3)",
+            border: `1px solid ${rgba(accent, 0.2)}`,
+            borderRadius: "50%",
+            width: 48, height: 48,
+            fontSize: 26, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            animation: "float 4s ease-in-out infinite",
+            backdropFilter: "blur(4px)",
+            transition: "all 0.2s",
+          }}
+        >
+          {devData?.flappyConfig?.dragonEmoji || "🐉"}
+        </button>
+      )}
 
       <div style={{ position: "relative", zIndex: 1, textAlign: "center", animation: "fadeIn 0.8s ease-out", width: "100%", maxWidth: 400 }}>
         {/* Logo */}
@@ -151,10 +227,18 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
         <div style={{ fontSize: 11, color: S.textDim, letterSpacing: 5, marginBottom: 44, fontFamily: font, textTransform: "uppercase" }}>{menuSubtitleText}</div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "center" }}>
-          <button onClick={() => handleNav("setup")} style={{ ...btn({ padding: "16px 60px", fontSize: 20 }), background: `linear-gradient(135deg, ${accent}, ${rgba(accent, 0.7)})`, boxShadow: `0 4px 20px ${rgba(accent, 0.3)}`, animation: "glow 3s ease-in-out infinite" }}>{t.play}</button>
-          <button onClick={() => handleNav("settings")} style={btnStyle({ padding: "12px 50px" })}>{t.settings}</button>
-          <button onClick={() => handleNav("friends")} style={btnStyle({ padding: "12px 50px" })}>{t.friends}</button>
-          <button onClick={() => handleNav("rules")} style={btnStyle({ padding: "12px 50px" })}>{t.rules}</button>
+          <button onClick={() => handleNav("setup")} style={makeButtonStyle("play", true)}>
+            {getButtonLabel("play", t.play)}
+          </button>
+          <button onClick={() => handleNav("settings")} style={makeButtonStyle("settings", false)}>
+            {getButtonLabel("settings", t.settings)}
+          </button>
+          <button onClick={() => handleNav("friends")} style={makeButtonStyle("friends", false)}>
+            {getButtonLabel("friends", t.friends)}
+          </button>
+          <button onClick={() => handleNav("rules")} style={makeButtonStyle("rules", false)}>
+            {getButtonLabel("rules", t.rules)}
+          </button>
         </div>
 
         <div style={{ marginTop: 44, display: "flex", gap: 12, justifyContent: "center" }}>
