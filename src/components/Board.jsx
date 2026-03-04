@@ -1,3 +1,4 @@
+import { useRef, useState, useEffect } from 'react';
 import { S } from '../theme';
 import { BOARD_SIZE, CORNER } from '../gameData';
 import { getCellPos } from '../gameEngine';
@@ -43,11 +44,30 @@ function DiceFace({ value, rolling }) {
   );
 }
 
-export default function Board({ game, selectedCell, setSelectedCell, getPropertyOwner, diceAnim, animPos, cp }) {
+export default function Board({ game, selectedCell, setSelectedCell, getPropertyOwner, diceAnim, animPos, cp, devData }) {
   const cells = game.cells;
+  const containerRef = useRef(null);
+  const [scale, setScale] = useState(1);
+
+  // Auto-scale board to fit container
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const updateScale = () => {
+      const { clientWidth, clientHeight } = container;
+      const pad = 16;
+      const s = Math.min((clientWidth - pad) / BOARD_SIZE, (clientHeight - pad) / BOARD_SIZE, 1);
+      setScale(Math.max(s, 0.3));
+    };
+
+    const ro = new ResizeObserver(updateScale);
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, []);
 
   return (
-    <div className="game-board-container" style={{ flex: 1, overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
+    <div ref={containerRef} className="game-board-container" style={{ flex: 1, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", padding: 8 }}>
       <div style={{
         position: "relative", width: BOARD_SIZE, height: BOARD_SIZE,
         background: `linear-gradient(135deg, ${S.bg3}, #0f0f1a)`,
@@ -55,6 +75,8 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
         borderRadius: 12,
         flexShrink: 0,
         boxShadow: `0 0 40px rgba(0,0,0,0.5), inset 0 0 60px rgba(0,0,0,0.3)`,
+        transform: `scale(${scale})`,
+        transformOrigin: "center center",
       }}>
         {/* Board texture overlay */}
         <div style={{
@@ -69,8 +91,16 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
           display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
           border: `1px solid ${S.gold}18`,
           borderRadius: 12,
-          background: `radial-gradient(ellipse at center, rgba(26,26,46,0.95) 0%, rgba(10,10,18,0.98) 100%)`,
+          background: devData?.boardBg
+            ? `url(${devData.boardBg}) center/cover no-repeat`
+            : `radial-gradient(ellipse at center, rgba(26,26,46,0.95) 0%, rgba(10,10,18,0.98) 100%)`,
+          overflow: "hidden",
         }}>
+          {/* Dark overlay if custom bg */}
+          {devData?.boardBg && (
+            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", pointerEvents: "none" }} />
+          )}
+
           {/* Decorative corner marks */}
           {[[0,0],[1,0],[0,1],[1,1]].map(([cx,cy], i) => (
             <div key={i} style={{
@@ -82,16 +112,17 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
               borderBottom: cy ? `1px solid ${S.gold}44` : "none",
               borderLeft: cx ? "none" : `1px solid ${S.gold}44`,
               borderRight: cx ? `1px solid ${S.gold}44` : "none",
+              zIndex: 1,
             }} />
           ))}
 
-          <div style={{ fontSize: 48, animation: "float 4s ease-in-out infinite" }}>⚔️</div>
-          <div className="shimmer-text" style={{ fontFamily: S.font, fontSize: 22, fontWeight: "bold", letterSpacing: 4, marginTop: 4 }}>KIRSHAS</div>
-          <div style={{ color: S.gold, fontFamily: S.font, fontSize: 12, letterSpacing: 7, opacity: 0.7 }}>MONOPOLIA</div>
+          <div style={{ fontSize: 48, animation: "float 4s ease-in-out infinite", zIndex: 1 }}>⚔️</div>
+          <div className="shimmer-text" style={{ fontFamily: S.font, fontSize: 22, fontWeight: "bold", letterSpacing: 4, marginTop: 4, zIndex: 1 }}>KIRSHAS</div>
+          <div style={{ color: S.gold, fontFamily: S.font, fontSize: 12, letterSpacing: 7, opacity: 0.7, zIndex: 1 }}>MONOPOLIA</div>
 
           {/* Dice display */}
           {(game.dice[0] > 0 || diceAnim) && (
-            <div style={{ display: "flex", gap: 16, marginTop: 24 }}>
+            <div style={{ display: "flex", gap: 16, marginTop: 24, zIndex: 1 }}>
               <DiceFace value={game.dice[0]} rolling={diceAnim} />
               <DiceFace value={game.dice[1]} rolling={diceAnim} />
             </div>
@@ -107,6 +138,7 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
               background: "rgba(201,168,76,0.05)",
               borderRadius: 8,
               border: `1px solid ${S.gold}11`,
+              zIndex: 1,
             }}>{game.message}</div>
           )}
         </div>
@@ -131,6 +163,7 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
               selected={selectedCell === idx}
               isCurrent={isCurrent}
               onClick={() => setSelectedCell(idx)}
+              devData={devData}
             />
           );
         })}
@@ -147,7 +180,11 @@ export default function Board({ game, selectedCell, setSelectedCell, getProperty
             filter: "drop-shadow(0 0 14px rgba(201,168,76,0.9)) drop-shadow(0 4px 8px rgba(0,0,0,0.5))",
             animation: "tokenMove 0.3s ease-out",
           }}>
-            {cp.token.emoji}
+            {devData?.tokenTextures?.[cp.id] ? (
+              <img src={devData.tokenTextures[cp.id]} style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }} />
+            ) : (
+              cp.token.emoji
+            )}
           </div>
         )}
       </div>

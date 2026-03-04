@@ -190,13 +190,18 @@ button:active:not(:disabled) {
 
 /* ======== RESPONSIVE ======== */
 
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 @media (max-width: 900px) {
   .game-layout {
     flex-direction: column !important;
   }
   .game-board-container {
     max-height: 50vh;
-    overflow: auto;
+    overflow: hidden;
   }
   .game-panel {
     width: 100% !important;

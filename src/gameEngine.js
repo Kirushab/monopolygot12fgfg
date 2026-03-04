@@ -17,6 +17,9 @@ export const shuffle = (arr) => {
 export const rollDie = () => Math.floor(Math.random() * 6) + 1;
 
 // --- BOARD POSITION CALCULATOR ---
+// Each side has exactly 9 cells filling the space between two corners
+const SIDE = (BOARD_SIZE - 2 * CORNER) / 9;
+
 export function getCellPos(idx) {
   if (idx === 0) return { x: BOARD_SIZE - CORNER, y: BOARD_SIZE - CORNER, w: CORNER, h: CORNER };
   if (idx === 10) return { x: 0, y: BOARD_SIZE - CORNER, w: CORNER, h: CORNER };
@@ -24,21 +27,21 @@ export function getCellPos(idx) {
   if (idx === 30) return { x: BOARD_SIZE - CORNER, y: 0, w: CORNER, h: CORNER };
   if (idx >= 1 && idx <= 9) {
     const i = 9 - idx;
-    return { x: CORNER + i * CELL_W + (BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 2 + i * ((BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 8), y: BOARD_SIZE - CORNER, w: CELL_W, h: CORNER };
+    return { x: CORNER + i * SIDE, y: BOARD_SIZE - CORNER, w: SIDE, h: CORNER };
   }
   if (idx >= 11 && idx <= 19) {
     const i = 19 - idx;
-    return { x: 0, y: CORNER + i * CELL_W + (BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 2 + i * ((BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 8), w: CORNER, h: CELL_W };
+    return { x: 0, y: CORNER + i * SIDE, w: CORNER, h: SIDE };
   }
   if (idx >= 21 && idx <= 29) {
     const i = idx - 21;
-    return { x: CORNER + i * CELL_W + (BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 2 + i * ((BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 8), y: 0, w: CELL_W, h: CORNER };
+    return { x: CORNER + i * SIDE, y: 0, w: SIDE, h: CORNER };
   }
   if (idx >= 31 && idx <= 39) {
     const i = idx - 31;
-    return { x: BOARD_SIZE - CORNER, y: CORNER + i * CELL_W + (BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 2 + i * ((BOARD_SIZE - 2 * CORNER - 9 * CELL_W) / 8), w: CORNER, h: CELL_W };
+    return { x: BOARD_SIZE - CORNER, y: CORNER + i * SIDE, w: CORNER, h: SIDE };
   }
-  return { x: 0, y: 0, w: CELL_W, h: 70 };
+  return { x: 0, y: 0, w: SIDE, h: SIDE };
 }
 
 export function getCellCenter(idx) {
