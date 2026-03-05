@@ -24,6 +24,8 @@ import Chat from './Chat';
 import VictoryScreen from './VictoryScreen';
 import DevPanel, { loadDevData } from './DevPanel';
 import FlappyDragon from './FlappyDragon';
+import Profile, { loadProfile, saveProfile, recordMonopolyResult } from './Profile';
+import VoiceChat from './VoiceChat';
 
 export default function Game() {
   const [lang, setLang] = useState("ru");
@@ -50,6 +52,7 @@ export default function Game() {
   const [devPanelOpen, setDevPanelOpen] = useState(false);
   const [propManagerOpen, setPropManagerOpen] = useState(false);
   const [flappyOpen, setFlappyOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [devData, setDevData] = useState(loadDevData);
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
@@ -59,12 +62,25 @@ export default function Game() {
   const [diceAnim, setDiceAnim] = useState(false);
   const [auctionBid, setAuctionBid] = useState(10);
   const [lendAmount, setLendAmount] = useState(0);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 600);
+  const [isLandscape, setIsLandscape] = useState(window.innerWidth > window.innerHeight && window.innerHeight <= 600);
 
   const t = T[lang];
   const aiTimerRef = useRef(null);
 
   // Multiplayer hook
   const mp = useMultiplayer();
+
+  // Responsive detection
+  useEffect(() => {
+    const handler = () => {
+      setIsMobile(window.innerWidth <= 600);
+      setIsLandscape(window.innerWidth > window.innerHeight && window.innerHeight <= 600);
+    };
+    window.addEventListener('resize', handler);
+    window.addEventListener('orientationchange', handler);
+    return () => { window.removeEventListener('resize', handler); window.removeEventListener('orientationchange', handler); };
+  }, []);
 
   // --- FETCH DEV CONFIG FROM SERVER ON MOUNT ---
   useEffect(() => {
@@ -400,6 +416,26 @@ export default function Game() {
     });
   }, [isOnline, mp, game, updateGame]);
 
+  // Record monopoly stats on game over
+  useEffect(() => {
+    if (!game || game.phase !== "gameover" || game._statsRecorded) return;
+    const humanPlayer = game.players.find(p => !p.isAI);
+    if (humanPlayer) {
+      const profile = loadProfile();
+      const won = game.winner === humanPlayer.id;
+      const finalWealth = calcWealthStatic(game, humanPlayer);
+      recordMonopolyResult(profile, {
+        won,
+        finalWealth,
+        rentCollected: humanPlayer.totalRentReceived || 0,
+        rentPaid: humanPlayer.totalRentPaid || 0,
+        propertiesBought: humanPlayer.properties?.length || 0,
+      });
+    }
+    // Mark stats as recorded to avoid double-counting
+    setGame(prev => prev ? { ...prev, _statsRecorded: true } : prev);
+  }, [game?.phase]);
+
   // --- BANKRUPT VOTE (local only) ---
   useEffect(() => {
     if (isOnline || !game || game.phase !== "bankruptCheck") return;
@@ -549,10 +585,34 @@ export default function Game() {
   // ========== SCREEN RENDERING ==========
   const ac = devData?.accentColor || S.gold;
   const f = devData?.font || S.font;
+  const rgba = (hex, a) => {
+    if (!hex || hex[0] !== '#') return `rgba(201,168,76,${a})`;
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  };
+
+  // Helper: get game button config
+  const getGBtnIcon = (key, defaultIcon) => {
+    const cfg = devData?.gameButtons?.[key] || {};
+    if (cfg.iconImage) return <img src={cfg.iconImage} style={{ width: 16, height: 16, objectFit: 'contain', verticalAlign: 'middle' }} alt="" />;
+    return cfg.icon || defaultIcon;
+  };
+  const getGBtnStyle = (key, baseStyle = {}) => {
+    const cfg = devData?.gameButtons?.[key] || {};
+    return {
+      ...baseStyle,
+      ...(cfg.bgColor ? { background: cfg.bgColor } : {}),
+      ...(cfg.textColor ? { color: cfg.textColor } : {}),
+      ...(cfg.borderColor ? { borderColor: cfg.borderColor } : {}),
+      ...(cfg.borderRadius != null ? { borderRadius: cfg.borderRadius } : {}),
+    };
+  };
 
   const renderScreen = () => {
     if (screen === "menu") {
-      return <MainMenu lang={lang} setLang={setLang} setScreen={setScreen} effectsVol={effectsVol} t={t} devData={devData} onFlappy={() => setFlappyOpen(true)} />;
+      return <MainMenu lang={lang} setLang={setLang} setScreen={setScreen} effectsVol={effectsVol} t={t} devData={devData}
+        onFlappy={() => setFlappyOpen(true)}
+        onProfile={() => setProfileOpen(true)} />;
     }
 
     if (screen === "settings") {
@@ -588,6 +648,7 @@ export default function Game() {
           <VictoryScreen
             game={game}
             t={t}
+            devData={devData}
             onMenu={() => { if (isOnline) leaveOnlineGame(); else { setGame(null); setScreen("menu"); } }}
             onNewGame={() => { if (isOnline) leaveOnlineGame(); else startLocalGame(); }}
           />
@@ -605,10 +666,22 @@ export default function Game() {
         );
       }
 
+      const topBarBtnStyle = (active) => ({
+        background: active ? ac + "33" : "transparent",
+        color: ac, border: `1px solid ${ac}44`,
+        padding: "4px 10px", borderRadius: 6,
+        cursor: "pointer", fontSize: 12, fontFamily: f,
+      });
+
       return (
         <div style={{ height: "100vh", background: S.bg, color: S.text, fontFamily: f, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* TOP BAR */}
-          <div style={{ background: S.bg2, borderBottom: `1px solid ${S.border}`, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, fontFamily: f, flexWrap: "wrap", gap: 4 }}>
+          <div className="game-top-bar" style={{
+            background: devData?.uiConfig?.topBarBg || S.bg2,
+            borderBottom: `1px solid ${devData?.uiConfig?.topBarBorder || S.border}`,
+            padding: "8px 12px", display: "flex", justifyContent: "space-between",
+            alignItems: "center", flexShrink: 0, fontFamily: f, flexWrap: "wrap", gap: 4,
+          }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               {devData?.logoImage
                 ? <img src={devData.logoImage} style={{ height: 22, objectFit: "contain" }} />
@@ -618,14 +691,40 @@ export default function Game() {
               {isOnline && <span style={{ fontSize: 9, color: mp.connected ? "#50c878" : "#ff6b6b" }}>● {lang === "ru" ? "ОНЛАЙН" : "ONLINE"}</span>}
             </div>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {(() => { const bs = (active) => ({ background: active ? ac + "33" : "transparent", color: ac, border: `1px solid ${ac}44`, padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: f }); return (<>
-              <button onClick={() => setPropManagerOpen(!propManagerOpen)} style={bs(propManagerOpen)} title={lang === "ru" ? "Мои владения" : "Properties"}>🏘</button>
-              <button onClick={() => setChatOpen(!chatOpen)} style={bs(chatOpen)}>💬</button>
-              <button onClick={() => setPanelOpen(!panelOpen)} style={bs(panelOpen)}>☰</button>
-              {!isOnline && <button onClick={() => updateGame((g) => { g.paused = true; })} style={bs(false)}>⏸</button>}
+              <button onClick={() => setPropManagerOpen(!propManagerOpen)} style={getGBtnStyle("properties", topBarBtnStyle(propManagerOpen))} title={lang === "ru" ? "Мои владения" : "Properties"}>
+                {getGBtnIcon("properties", "🏘")}
+              </button>
+              <button onClick={() => setChatOpen(!chatOpen)} style={getGBtnStyle("chat", topBarBtnStyle(chatOpen))}>
+                {getGBtnIcon("chat", "💬")}
+              </button>
+              <button onClick={() => setPanelOpen(!panelOpen)} style={getGBtnStyle("menu", topBarBtnStyle(panelOpen))}>
+                {getGBtnIcon("menu", "☰")}
+              </button>
+              {!isOnline && (
+                <button onClick={() => updateGame((g) => { g.paused = true; })} style={getGBtnStyle("pause", topBarBtnStyle(false))}>
+                  {getGBtnIcon("pause", "⏸")}
+                </button>
+              )}
               {isOnline && <button onClick={leaveOnlineGame} style={{ background: "transparent", color: "#ff6b6b", border: "1px solid #ff6b6b44", padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontFamily: f }}>{lang === "ru" ? "Выйти" : "Leave"}</button>}
-              </>); })()}
             </div>
+          </div>
+
+          {/* Side controls for landscape mode */}
+          <div className="game-side-controls">
+            <button onClick={() => setPropManagerOpen(!propManagerOpen)} style={{ ...topBarBtnStyle(propManagerOpen), padding: "6px", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {getGBtnIcon("properties", "🏘")}
+            </button>
+            <button onClick={() => setChatOpen(!chatOpen)} style={{ ...topBarBtnStyle(chatOpen), padding: "6px", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {getGBtnIcon("chat", "💬")}
+            </button>
+            <button onClick={() => setPanelOpen(!panelOpen)} style={{ ...topBarBtnStyle(panelOpen), padding: "6px", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              {getGBtnIcon("menu", "☰")}
+            </button>
+            {!isOnline && (
+              <button onClick={() => updateGame((g) => { g.paused = true; })} style={{ ...topBarBtnStyle(false), padding: "6px", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {getGBtnIcon("pause", "⏸")}
+              </button>
+            )}
           </div>
 
           <div className="game-layout" style={{ flex: 1, display: "flex", overflow: "hidden", position: "relative" }}>
@@ -640,12 +739,37 @@ export default function Game() {
               devData={devData}
             />
 
-            {!panelOpen && (
+            {/* Panel overlay for mobile */}
+            {isMobile && panelOpen && (
+              <div className="game-panel-overlay visible" onClick={() => setPanelOpen(false)} />
+            )}
+
+            {!panelOpen && !isLandscape && (
               <button onClick={() => setPanelOpen(true)} style={{ position: "absolute", right: 10, top: 10, zIndex: 15, background: S.bg2, color: ac, border: `1px solid ${ac}44`, borderRadius: 8, padding: "8px 12px", cursor: "pointer", fontFamily: f, fontSize: 13, boxShadow: "0 4px 16px rgba(0,0,0,0.5)" }}>☰</button>
             )}
 
-            <div className="game-panel" style={{ width: panelOpen ? Math.min(300, window.innerWidth * 0.4) : 0, background: S.bg2, borderLeft: panelOpen ? `1px solid ${S.border}` : "none", display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0, transition: "width 0.3s ease" }}>
-              <PlayerPanel game={game} lang={lang} t={t} onClose={() => setPanelOpen(false)} />
+            <div className={`game-panel ${isMobile && panelOpen ? 'mobile-open' : ''}`} style={{
+              width: panelOpen ? Math.min(300, window.innerWidth * 0.4) : 0,
+              background: devData?.uiConfig?.panelBg || S.bg2,
+              borderLeft: panelOpen ? `1px solid ${devData?.uiConfig?.panelBorder || S.border}` : "none",
+              display: "flex", flexDirection: "column",
+              overflow: "hidden", flexShrink: 0,
+              transition: isMobile ? "none" : "width 0.3s ease",
+            }}>
+              <PlayerPanel game={game} lang={lang} t={t} onClose={() => setPanelOpen(false)} devData={devData} />
+
+              {/* Voice Chat */}
+              {isOnline && panelOpen && (
+                <div style={{ padding: "0 10px 10px 10px" }}>
+                  <VoiceChat
+                    socket={mp.socket}
+                    roomId={mp.currentRoom}
+                    playerName={game.players.find(p => !p.isAI)?.name || "Player"}
+                    lang={lang}
+                    devData={devData}
+                  />
+                </div>
+              )}
 
               {selectedCell !== null && cells[selectedCell] && (
                 <PropertyCard
@@ -670,6 +794,7 @@ export default function Game() {
                 payJail={payJail} useFreedomCard={useFreedomCard}
                 doBuild={doBuild} doMortgage={doMortgage} doRedeem={doRedeem}
                 auctionBid={auctionBid} setAuctionBid={setAuctionBid} doAuctionBid={doAuctionBid}
+                devData={devData}
               />
             </div>
 
@@ -679,6 +804,7 @@ export default function Game() {
                 chatMessages={chatMessages} chatInput={chatInput}
                 setChatInput={setChatInput} sendChat={sendChat}
                 onClose={() => setChatOpen(false)} panelOpen={panelOpen}
+                devData={devData}
               />
             )}
 
@@ -740,6 +866,15 @@ export default function Game() {
       {flappyOpen && (
         <FlappyDragon
           onClose={() => setFlappyOpen(false)}
+          devData={devData}
+        />
+      )}
+
+      {/* Player Profile */}
+      {profileOpen && (
+        <Profile
+          onClose={() => setProfileOpen(false)}
+          lang={lang}
           devData={devData}
         />
       )}

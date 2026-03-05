@@ -37,7 +37,7 @@ function Particles({ accent }) {
   );
 }
 
-export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devData, onFlappy }) {
+export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devData, onFlappy, onProfile }) {
   const accent = devData?.accentColor || S.gold;
   const font = devData?.font || S.font;
   const logoImage = devData?.logoImage;
@@ -149,10 +149,14 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
     return btnOutline(base);
   };
 
-  const getButtonLabel = (key, defaultLabel) => {
+  const getButtonContent = (key, defaultLabel) => {
     const cfg = buttons[key] || {};
-    const icon = cfg.icon || '';
     const label = cfg.label || defaultLabel;
+    const customIconImg = devData?.customIcons?.[`${key}Icon`];
+    if (customIconImg) {
+      return <><img src={customIconImg} style={{ width: 20, height: 20, objectFit: "contain", verticalAlign: "middle", marginRight: 8 }} alt="" />{label}</>;
+    }
+    const icon = cfg.icon || '';
     return icon ? `${icon} ${label}` : label;
   };
 
@@ -206,9 +210,38 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
             animation: "float 4s ease-in-out infinite",
             backdropFilter: "blur(4px)",
             transition: "all 0.2s",
+            overflow: "hidden",
           }}
         >
-          {devData?.flappyConfig?.dragonEmoji || "🐉"}
+          {devData?.customIcons?.flappyButton
+            ? <img src={devData.customIcons.flappyButton} style={{ width: 32, height: 32, objectFit: "contain" }} alt="" />
+            : (devData?.flappyConfig?.dragonEmoji || "🐉")
+          }
+        </button>
+      )}
+
+      {/* Profile button */}
+      {onProfile && (
+        <button
+          onClick={() => { playClickSound(effectsVol); onProfile(); }}
+          title={lang === "ru" ? "Профиль" : "Profile"}
+          style={{
+            position: "absolute", top: 16, right: 16, zIndex: 5,
+            background: "rgba(0,0,0,0.3)",
+            border: `1px solid ${rgba(accent, 0.2)}`,
+            borderRadius: "50%",
+            width: 48, height: 48,
+            fontSize: 26, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            backdropFilter: "blur(4px)",
+            transition: "all 0.2s",
+            overflow: "hidden",
+          }}
+        >
+          {devData?.customIcons?.profileButton
+            ? <img src={devData.customIcons.profileButton} style={{ width: 32, height: 32, objectFit: "contain" }} alt="" />
+            : "👤"
+          }
         </button>
       )}
 
@@ -228,16 +261,16 @@ export default function MainMenu({ lang, setLang, setScreen, effectsVol, t, devD
 
         <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "center" }}>
           <button onClick={() => handleNav("setup")} style={makeButtonStyle("play", true)}>
-            {getButtonLabel("play", t.play)}
+            {getButtonContent("play", t.play)}
           </button>
           <button onClick={() => handleNav("settings")} style={makeButtonStyle("settings", false)}>
-            {getButtonLabel("settings", t.settings)}
+            {getButtonContent("settings", t.settings)}
           </button>
           <button onClick={() => handleNav("friends")} style={makeButtonStyle("friends", false)}>
-            {getButtonLabel("friends", t.friends)}
+            {getButtonContent("friends", t.friends)}
           </button>
           <button onClick={() => handleNav("rules")} style={makeButtonStyle("rules", false)}>
-            {getButtonLabel("rules", t.rules)}
+            {getButtonContent("rules", t.rules)}
           </button>
         </div>
 
