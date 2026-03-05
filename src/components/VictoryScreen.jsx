@@ -31,44 +31,60 @@ function Confetti() {
   );
 }
 
-export default function VictoryScreen({ game, t, onMenu, onNewGame }) {
+export default function VictoryScreen({ game, t, onMenu, onNewGame, devData }) {
+  const ui = devData?.uiConfig || {};
+  const accent = devData?.accentColor || S.gold;
+  const font = devData?.font || S.font;
+  const text = ui.pageText || S.text;
+  const bg = ui.victoryBg || ui.pageBg || S.bg;
+
   const winner = game.players[game.winner];
+  const winnerColor = devData?.playerColors?.[winner.id] || winner.color;
   const sorted = [...game.players].sort((a, b) => calcWealthStatic(game, b) - calcWealthStatic(game, a));
 
   return (
-    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at center, #1a1a0e 0%, ${S.bg} 70%)`, color: S.text, fontFamily: S.font, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", position: "relative", overflow: "hidden" }}>
+    <div style={{ minHeight: "100vh", background: `radial-gradient(ellipse at center, #1a1a0e 0%, ${bg} 70%)`, color: text, fontFamily: font, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", position: "relative", overflow: "hidden" }}>
       <Confetti />
 
-      {/* Vignette */}
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.5) 100%)", pointerEvents: "none" }} />
 
       <div style={{ position: "relative", zIndex: 1, animation: "fadeIn 1s ease-out" }}>
         <div style={{ fontSize: 100, animation: "crownFloat 4s ease-in-out infinite", filter: "drop-shadow(0 8px 24px rgba(201,168,76,0.5))" }}>👑</div>
-        <h1 className="shimmer-text" style={{ fontSize: 44, letterSpacing: 4, fontFamily: S.font, margin: "8px 0" }}>{t.coronation}</h1>
-        <div style={{ fontSize: 32, marginBottom: 24, color: winner.color, textShadow: `0 0 20px ${winner.color}66`, animation: "fadeIn 1.5s ease-out" }}>
-          {winner.token.emoji} {winner.name}
+        <h1 className="shimmer-text" style={{ fontSize: 44, letterSpacing: 4, fontFamily: font, margin: "8px 0" }}>{t.coronation}</h1>
+        <div style={{ fontSize: 32, marginBottom: 24, color: winnerColor, textShadow: `0 0 20px ${winnerColor}66`, animation: "fadeIn 1.5s ease-out" }}>
+          {devData?.tokenTextures?.[winner.id] ? (
+            <img src={devData.tokenTextures[winner.id]} style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", verticalAlign: "middle", marginRight: 8 }} />
+          ) : (
+            <span>{winner.token.emoji} </span>
+          )}
+          {winner.name}
         </div>
 
-        <div style={card({ maxWidth: 420, width: "100%", animation: "slideInUp 0.8s ease-out" })}>
-          <h3 style={{ color: S.gold, marginTop: 0, letterSpacing: 2, fontSize: 14 }}>{t.stats}</h3>
+        <div style={card({ maxWidth: 420, width: "100%", animation: "slideInUp 0.8s ease-out", background: ui.cardBg, borderColor: ui.cardBorder })}>
+          <h3 style={{ color: accent, marginTop: 0, letterSpacing: 2, fontSize: 14 }}>{t.stats}</h3>
           {sorted.map((p, i) => {
             const w = calcWealthStatic(game, p);
+            const pColor = devData?.playerColors?.[p.id] || p.color;
             return (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${S.border}`, opacity: p.bankrupt ? 0.3 : 1 }}>
-                <span style={{ fontSize: 11, color: i === 0 ? S.gold : S.textDim, fontWeight: "bold", width: 18 }}>#{i + 1}</span>
-                <span style={{ fontSize: 18 }}>{p.token.emoji}</span>
-                <span style={{ flex: 1, fontSize: 13 }}>{p.name}</span>
-                <span style={{ color: S.gold, fontWeight: "bold", fontSize: 13 }}>{w} {t.gold}</span>
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 0", borderBottom: `1px solid ${ui.cardBorder || S.border}`, opacity: p.bankrupt ? 0.3 : 1 }}>
+                <span style={{ fontSize: 11, color: i === 0 ? accent : (ui.pageTextDim || S.textDim), fontWeight: "bold", width: 18 }}>#{i + 1}</span>
+                {devData?.tokenTextures?.[p.id] ? (
+                  <img src={devData.tokenTextures[p.id]} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover" }} />
+                ) : (
+                  <span style={{ fontSize: 18 }}>{p.token.emoji}</span>
+                )}
+                <span style={{ flex: 1, fontSize: 13, color: pColor }}>{p.name}</span>
+                <span style={{ color: accent, fontWeight: "bold", fontSize: 13 }}>{w} {t.gold}</span>
               </div>
             );
           })}
-          <div style={{ marginTop: 12, fontSize: 12, color: S.textDim }}>
+          <div style={{ marginTop: 12, fontSize: 12, color: ui.pageTextDim || S.textDim }}>
             {t.roundsPlayed}: {game.roundCount}
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 12, marginTop: 28, animation: "fadeIn 2s ease-out" }}>
-          <button onClick={onMenu} style={{ ...btn(), boxShadow: "0 4px 16px rgba(201,168,76,0.3)" }}>{t.toMenu}</button>
+          <button onClick={onMenu} style={{ ...btn(), boxShadow: `0 4px 16px ${accent}4d` }}>{t.toMenu}</button>
           <button onClick={onNewGame} style={btnOutline()}>{t.newGame}</button>
         </div>
       </div>

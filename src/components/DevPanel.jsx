@@ -4,23 +4,33 @@ import { HOUSES, TOKENS, PLAYER_COLORS, makeCells } from '../gameData';
 
 const DEFAULT_DEV_DATA = {
   cellTextures: {}, boardBg: null, tokenTextures: {}, buildingTextures: {},
-  logoImage: null, cellBgTextures: {},
+  logoImage: null, cellBgTextures: {}, hiddenCellIcons: {},
   cellNames: {}, gameTitle: null, gameSubtitle: null, centerEmoji: null, houseSigils: {},
   accentColor: null, boardBgColor: null, boardBorderColor: null, diceColor: null,
   houseColors: {}, playerColors: {}, cellBgColors: {},
   audio: {},
   volume: { master: 1.0, music: 0.5, effects: 0.7, ambient: 0.3 },
   font: null, showGrid: true,
-  layout: { emojiSize: null, titleSize: null, subtitleSize: null, diceSize: null, cellIconSize: null },
+  layout: { emojiSize: null, titleSize: null, subtitleSize: null, diceSize: null, cellIconSize: null, tokenSize: null },
   menuConfig: {
     backgrounds: [], slideshowInterval: 8, subtitle: null, buttonStyle: "default",
-    buttons: {},       // { play: { icon, label, color }, settings: { ... }, ... }
+    buttons: {},
     showParticles: true,
     showGrid: true,
     showVignette: true,
     dragonButton: true,
   },
   flappyConfig: { dragonEmoji: null, pipeColor: null, bgColor: null, groundColor: null, dragonImage: null },
+  uiConfig: {
+    pageBg: null, pageBg2: null, pageText: null, pageTextDim: null,
+    cardBg: null, cardBorder: null,
+    panelBg: null, panelBorder: null,
+    chatBg: null, chatBorder: null,
+    popupBg: null, popupBorder: null, popupOverlay: null,
+    settingsTitle: null, rulesTitle: null, setupTitle: null,
+    victoryBg: null,
+    topBarBg: null, topBarBorder: null,
+  },
 };
 
 export function loadDevData() {
@@ -304,14 +314,16 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
   });
   const sliderStyle = { flex: 1, cursor: "pointer", accentColor: accent };
 
+  const updateUI = (key, value) => saveToServer({ ...devData, uiConfig: { ...(devData.uiConfig || {}), [key]: value } });
+
   const tabs = [
     ["textures", "🖼"], ["colors", "🎨"], ["audio", "🎵"],
-    ["menu", "📱"], ["text", "✏️"], ["styles", "⚙️"], ["system", "💾"],
+    ["menu", "📱"], ["text", "✏️"], ["styles", "⚙️"], ["ui", "🎭"], ["system", "💾"],
   ];
 
   const tabNames = {
     textures: "Текстуры", colors: "Цвета", audio: "Аудио",
-    menu: "Меню", text: "Текст", styles: "Стили", system: "Система",
+    menu: "Меню", text: "Текст", styles: "Стили", ui: "Интерфейс", system: "Система",
   };
 
   const filteredCells = cellSearch
@@ -448,6 +460,10 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
                 <img src={devData.cellTextures[selectedCellId]} style={{ width: 28, height: 28, borderRadius: 4, objectFit: "cover" }} />
                 <button onClick={() => deleteNested("cellTextures", selectedCellId)} style={clearBtn}>✕</button>
               </>)}
+              <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: S.textDim, cursor: "pointer" }}>
+                <input type="checkbox" checked={!!devData.hiddenCellIcons?.[selectedCellId]} onChange={(e) => updateNested("hiddenCellIcons", selectedCellId, e.target.checked || undefined)} style={{ accentColor: accent }} />
+                Скрыть
+              </label>
             </div>
 
             <div style={{ fontSize: 10, color: S.textDim, marginBottom: 3, marginTop: 6 }}>Фон ячейки</div>
@@ -849,6 +865,7 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
               ["subtitleSize", "Подзаголовок", 12, 6, 40],
               ["diceSize", "Кубики", 56, 30, 100],
               ["cellIconSize", "Иконки клеток", 22, 10, 50],
+              ["tokenSize", "Фишки игроков", 13, 8, 30],
             ].map(([key, lbl, def, min, max]) => (
               <div key={key} style={{ ...row, marginBottom: 8 }}>
                 <span style={{ fontSize: 11, color: S.textDim, minWidth: isMobile ? 60 : 100 }}>{lbl}</span>
@@ -858,6 +875,100 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
                 {devData.layout?.[key] != null && <button onClick={() => updateLayout(key, null)} style={clearBtn}>↩</button>}
               </div>
             ))}
+          </div>
+        </>)}
+
+        {/* ===================== UI DESIGN TAB ===================== */}
+        {tab === "ui" && (<>
+          <div style={section}>
+            <span style={label}>Страницы (фон, текст)</span>
+            {[
+              ["pageBg", "Фон страниц", S.bg],
+              ["pageBg2", "Фон карточек", S.bg3],
+              ["pageText", "Текст", S.text],
+              ["pageTextDim", "Тусклый текст", S.textDim],
+            ].map(([key, lbl, def]) => (
+              <div key={key} style={row}>
+                <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
+                <input type="color" value={devData.uiConfig?.[key] || def} onChange={(e) => updateUI(key, e.target.value)} style={colorInput} />
+                <span style={{ fontSize: 9, color: S.textDim }}>{devData.uiConfig?.[key] || "—"}</span>
+                {devData.uiConfig?.[key] && <button onClick={() => updateUI(key, null)} style={clearBtn}>↩</button>}
+              </div>
+            ))}
+          </div>
+
+          <div style={section}>
+            <span style={label}>Панели (игра)</span>
+            {[
+              ["panelBg", "Фон панели", S.bg2],
+              ["panelBorder", "Рамка панели", S.border],
+              ["topBarBg", "Фон верх. бара", S.bg2],
+              ["topBarBorder", "Рамка верх. бара", S.border],
+            ].map(([key, lbl, def]) => (
+              <div key={key} style={row}>
+                <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
+                <input type="color" value={devData.uiConfig?.[key] || def} onChange={(e) => updateUI(key, e.target.value)} style={colorInput} />
+                <span style={{ fontSize: 9, color: S.textDim }}>{devData.uiConfig?.[key] || "—"}</span>
+                {devData.uiConfig?.[key] && <button onClick={() => updateUI(key, null)} style={clearBtn}>↩</button>}
+              </div>
+            ))}
+          </div>
+
+          <div style={section}>
+            <span style={label}>Карточки / Попапы</span>
+            {[
+              ["cardBg", "Фон карточки", S.bg3],
+              ["cardBorder", "Рамка карточки", S.border],
+              ["popupBg", "Фон попапа", "#12121e"],
+              ["popupBorder", "Рамка попапа", S.gold],
+              ["popupOverlay", "Затемнение", "rgba(0,0,0,0.7)"],
+            ].map(([key, lbl, def]) => (
+              <div key={key} style={row}>
+                <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
+                <input type="color" value={devData.uiConfig?.[key] || (typeof def === 'string' && def[0] === '#' ? def : "#000000")} onChange={(e) => updateUI(key, e.target.value)} style={colorInput} />
+                <span style={{ fontSize: 9, color: S.textDim }}>{devData.uiConfig?.[key] || "—"}</span>
+                {devData.uiConfig?.[key] && <button onClick={() => updateUI(key, null)} style={clearBtn}>↩</button>}
+              </div>
+            ))}
+          </div>
+
+          <div style={section}>
+            <span style={label}>Чат</span>
+            {[
+              ["chatBg", "Фон чата", S.bg2],
+              ["chatBorder", "Рамка чата", S.gold],
+            ].map(([key, lbl, def]) => (
+              <div key={key} style={row}>
+                <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
+                <input type="color" value={devData.uiConfig?.[key] || def} onChange={(e) => updateUI(key, e.target.value)} style={colorInput} />
+                {devData.uiConfig?.[key] && <button onClick={() => updateUI(key, null)} style={clearBtn}>↩</button>}
+              </div>
+            ))}
+          </div>
+
+          <div style={section}>
+            <span style={label}>Заголовки страниц</span>
+            {[
+              ["settingsTitle", "Настройки"],
+              ["rulesTitle", "Правила"],
+              ["setupTitle", "Настройка партии"],
+            ].map(([key, lbl]) => (
+              <div key={key} style={{ ...row, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
+                <input type="text" value={devData.uiConfig?.[key] || ""} onChange={(e) => updateUI(key, e.target.value)} placeholder={lbl}
+                  style={{ ...textInput(!!devData.uiConfig?.[key]), flex: 1 }} />
+                {devData.uiConfig?.[key] && <button onClick={() => updateUI(key, null)} style={clearBtn}>↩</button>}
+              </div>
+            ))}
+          </div>
+
+          <div style={section}>
+            <span style={label}>Победный экран</span>
+            <div style={row}>
+              <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>Фон</span>
+              <input type="color" value={devData.uiConfig?.victoryBg || "#1a1a0e"} onChange={(e) => updateUI("victoryBg", e.target.value)} style={colorInput} />
+              {devData.uiConfig?.victoryBg && <button onClick={() => updateUI("victoryBg", null)} style={clearBtn}>↩</button>}
+            </div>
           </div>
         </>)}
 
