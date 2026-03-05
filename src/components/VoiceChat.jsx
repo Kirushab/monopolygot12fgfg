@@ -29,13 +29,25 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
   const audioCtxRef = useRef(null);
   const remoteAudiosRef = useRef({});
   const isActiveRef = useRef(false);
+  const peersRef = useRef({}); // Mirror of peers state for use in callbacks
+  const socketRef = useRef(socket);
+
+  // Keep socketRef current
+  useEffect(() => { socketRef.current = socket; }, [socket]);
+
+  // Keep peersRef in sync with peers state
+  useEffect(() => { peersRef.current = peers; }, [peers]);
 
   // Create a peer connection and handle audio for a remote peer
   const createPeerConnection = useCallback((peerId, peerName, isInitiator) => {
-    if (!streamRef.current || !socket) return null;
-    if (peerConnectionsRef.current[peerId]) {
-      peerConnectionsRef.current[peerId].close();
+    if (!streamRef.current || !socketRef.current) return null;
+
+    // Don't recreate if already connected/connecting
+    const existing = peerConnectionsRef.current[peerId];
+    if (existing && existing.connectionState !== 'failed' && existing.connectionState !== 'closed') {
+      return existing;
     }
+    if (existing) existing.close();
 
     const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     peerConnectionsRef.current[peerId] = pc;
@@ -47,8 +59,8 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
 
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit('voice_signal', {
+      if (event.candidate && socketRef.current) {
+        socketRef.current.emit('voice_signal', {
           targetId: peerId,
           signal: { type: 'candidate', candidate: event.candidate },
         });
@@ -58,66 +70,93 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
     // Handle remote audio stream
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0];
-      if (remoteStream) {
-        // Create audio element and play
-        let audio = remoteAudiosRef.current[peerId];
-        if (!audio) {
-          audio = new Audio();
-          audio.autoplay = true;
-          remoteAudiosRef.current[peerId] = audio;
-        }
-        audio.srcObject = remoteStream;
-        audio.play().catch(() => {});
+      if (!remoteStream) return;
 
-        // Update peer speaking state
-        try {
-          const actx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
-          if (!audioCtxRef.current) audioCtxRef.current = actx;
-          const src = actx.createMediaStreamSource(remoteStream);
-          const an = actx.createAnalyser();
-          an.fftSize = 256;
-          src.connect(an);
-          const buf = new Uint8Array(an.frequencyBinCount);
-          const checkSpeaking = () => {
-            if (!peerConnectionsRef.current[peerId]) return;
-            an.getByteFrequencyData(buf);
-            const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
-            setPeers(prev => {
-              if (!prev[peerId]) return prev;
-              const speaking = avg > 12;
-              if (prev[peerId].speaking === speaking) return prev;
-              return { ...prev, [peerId]: { ...prev[peerId], speaking } };
-            });
-            requestAnimationFrame(checkSpeaking);
-          };
-          checkSpeaking();
-        } catch {}
+      // Create audio element and play
+      let audio = remoteAudiosRef.current[peerId];
+      if (!audio) {
+        audio = new Audio();
+        audio.autoplay = true;
+        audio.playsInline = true;
+        remoteAudiosRef.current[peerId] = audio;
       }
+      audio.srcObject = remoteStream;
+      audio.play().catch(err => console.warn('Audio play failed:', err));
+
+      // Detect remote speaking
+      try {
+        const actx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+        if (!audioCtxRef.current) audioCtxRef.current = actx;
+        const src = actx.createMediaStreamSource(remoteStream);
+        const an = actx.createAnalyser();
+        an.fftSize = 256;
+        src.connect(an);
+        const buf = new Uint8Array(an.frequencyBinCount);
+        const checkSpeaking = () => {
+          if (!peerConnectionsRef.current[peerId]) return;
+          an.getByteFrequencyData(buf);
+          const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
+          setPeers(prev => {
+            if (!prev[peerId]) return prev;
+            const speaking = avg > 12;
+            if (prev[peerId].speaking === speaking) return prev;
+            return { ...prev, [peerId]: { ...prev[peerId], speaking } };
+          });
+          requestAnimationFrame(checkSpeaking);
+        };
+        checkSpeaking();
+      } catch (e) { console.warn('Speaking detection failed:', e); }
     };
 
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+      const state = pc.connectionState;
+      if (state === 'failed') {
+        console.warn(`Peer connection to ${peerId} failed, cleaning up`);
         cleanupPeer(peerId);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'failed') {
+        // Try ICE restart
+        if (isInitiator) {
+          pc.createOffer({ iceRestart: true }).then(offer => {
+            pc.setLocalDescription(offer);
+            socketRef.current?.emit('voice_signal', {
+              targetId: peerId,
+              signal: { type: 'offer', sdp: offer },
+            });
+          }).catch(() => cleanupPeer(peerId));
+        }
       }
     };
 
     // If initiator, create and send offer
     if (isInitiator) {
       pc.createOffer().then(offer => {
-        pc.setLocalDescription(offer);
-        socket.emit('voice_signal', {
+        return pc.setLocalDescription(offer);
+      }).then(() => {
+        socketRef.current?.emit('voice_signal', {
           targetId: peerId,
-          signal: { type: 'offer', sdp: offer },
+          signal: { type: 'offer', sdp: pc.localDescription },
         });
-      }).catch(console.error);
+      }).catch(err => {
+        console.error('Failed to create offer:', err);
+        cleanupPeer(peerId);
+      });
     }
 
     return pc;
-  }, [socket]);
+  }, []);
 
   const cleanupPeer = useCallback((peerId) => {
-    if (peerConnectionsRef.current[peerId]) {
-      peerConnectionsRef.current[peerId].close();
+    const pc = peerConnectionsRef.current[peerId];
+    if (pc) {
+      pc.onicecandidate = null;
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      pc.oniceconnectionstatechange = null;
+      pc.close();
       delete peerConnectionsRef.current[peerId];
     }
     if (remoteAudiosRef.current[peerId]) {
@@ -140,7 +179,7 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
         streamRef.current = null;
       }
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      if (socket) socket.emit('voice_leave', { roomId });
+      if (socketRef.current) socketRef.current.emit('voice_leave');
       Object.keys(peerConnectionsRef.current).forEach(id => cleanupPeer(id));
       peerConnectionsRef.current = {};
       setIsActive(false);
@@ -181,11 +220,11 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
       updateVolume();
 
       // Notify server — server will send back list of existing voice peers
-      if (socket) socket.emit('voice_join', { roomId, name: playerName });
+      if (socketRef.current) socketRef.current.emit('voice_join', { name: playerName });
     } catch (err) {
       console.warn('Microphone access denied:', err);
     }
-  }, [isActive, socket, roomId, playerName, cleanupPeer]);
+  }, [isActive, playerName, cleanupPeer]);
 
   // Toggle mute
   const toggleMute = useCallback(() => {
@@ -201,25 +240,23 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
   useEffect(() => {
     if (!socket) return;
 
+    // A new peer joined the voice chat — they will send us an offer, so we just track them
     const onVoiceJoin = ({ socketId, name }) => {
       setPeers(prev => ({ ...prev, [socketId]: { name, speaking: false } }));
-      // If we're active, create a peer connection (we initiate as the existing peer)
-      if (isActiveRef.current && streamRef.current) {
-        createPeerConnection(socketId, name, true);
-      }
+      // Do NOT initiate here — the new joiner will initiate via voice_peers
     };
 
     const onVoiceLeave = ({ socketId }) => {
       cleanupPeer(socketId);
     };
 
+    // We just joined — server sends us the list of existing peers. WE initiate connections.
     const onVoicePeers = (peerList) => {
-      // Received list of existing voice peers — connect to each
       if (!isActiveRef.current || !streamRef.current) return;
       const p = {};
       peerList.forEach(({ socketId, name }) => {
         p[socketId] = { name, speaking: false };
-        // Create connection to each existing peer (they will answer)
+        // We are the new joiner — we initiate to each existing peer
         createPeerConnection(socketId, name, true);
       });
       setPeers(prev => ({ ...prev, ...p }));
@@ -229,29 +266,41 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
       if (!isActiveRef.current || !streamRef.current) return;
 
       if (signal.type === 'offer') {
-        // Someone sent us an offer — create connection and answer
-        const peerName = peers[fromId]?.name || '???';
+        // Someone sent us an offer — create connection (non-initiator) and answer
+        const peerName = peersRef.current[fromId]?.name || '???';
+        // Add to peers if not already there
+        setPeers(prev => {
+          if (!prev[fromId]) return { ...prev, [fromId]: { name: peerName, speaking: false } };
+          return prev;
+        });
+
         const pc = createPeerConnection(fromId, peerName, false);
         if (!pc) return;
+
         pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
           .then(() => pc.createAnswer())
-          .then(answer => {
-            pc.setLocalDescription(answer);
+          .then(answer => pc.setLocalDescription(answer))
+          .then(() => {
             socket.emit('voice_signal', {
               targetId: fromId,
-              signal: { type: 'answer', sdp: answer },
+              signal: { type: 'answer', sdp: pc.localDescription },
             });
           })
-          .catch(console.error);
+          .catch(err => {
+            console.error('Failed to handle offer:', err);
+            cleanupPeer(fromId);
+          });
       } else if (signal.type === 'answer') {
         const pc = peerConnectionsRef.current[fromId];
-        if (pc) {
-          pc.setRemoteDescription(new RTCSessionDescription(signal.sdp)).catch(console.error);
+        if (pc && pc.signalingState === 'have-local-offer') {
+          pc.setRemoteDescription(new RTCSessionDescription(signal.sdp))
+            .catch(err => console.error('Failed to set answer:', err));
         }
       } else if (signal.type === 'candidate') {
         const pc = peerConnectionsRef.current[fromId];
-        if (pc) {
-          pc.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(console.error);
+        if (pc && pc.remoteDescription) {
+          pc.addIceCandidate(new RTCIceCandidate(signal.candidate))
+            .catch(err => console.warn('Failed to add ICE candidate:', err));
         }
       }
     };
@@ -276,9 +325,10 @@ export default function VoiceChat({ socket, roomId, playerName, lang, devData })
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       Object.keys(peerConnectionsRef.current).forEach(id => {
-        peerConnectionsRef.current[id]?.close();
+        const pc = peerConnectionsRef.current[id];
+        if (pc) { pc.onicecandidate = null; pc.ontrack = null; pc.close(); }
       });
-      Object.values(remoteAudiosRef.current).forEach(a => { a.srcObject = null; });
+      Object.values(remoteAudiosRef.current).forEach(a => { if (a) a.srcObject = null; });
       if (audioCtxRef.current) audioCtxRef.current.close().catch(() => {});
     };
   }, []);
