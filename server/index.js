@@ -68,6 +68,21 @@ function devAuth(req, res, next) {
 // ============================================================
 const rooms = new Map();      // roomId -> Room
 const playerRoom = new Map(); // socketId -> roomId
+const voicePeers = new Map(); // roomId -> Map<socketId, name>
+
+// ============================================================
+// USER ACCOUNTS — Server-side persistence
+// ============================================================
+const USERS_FILE = join(DATA_DIR, 'users.json');
+
+function loadUsers() {
+  try { if (existsSync(USERS_FILE)) return JSON.parse(readFileSync(USERS_FILE, 'utf-8')); } catch {}
+  return {};
+}
+
+function saveUsersData(users) {
+  writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
+}
 
 function generateRoomId() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -659,29 +674,43 @@ io.on('connection', (socket) => {
   ga('accept_trade', (rid) => doAction(rid, "accept_trade"));
   ga('decline_trade', (rid) => doAction(rid, "decline_trade"));
 
-  // --- VOICE CHAT SIGNALING ---
+  // --- VOICE CHAT SIGNALING (WebRTC) ---
   socket.on('voice_join', (data) => {
     const roomId = playerRoom.get(socket.id);
     if (!roomId) return;
-    // Notify others in room
-    socket.to(roomId).emit('voice_join', { socketId: socket.id, name: data.name || '???' });
-    // Send current voice peers to the joiner
-    const room = rooms.get(roomId);
-    if (room) {
-      const voicePeers = [];
-      // We don't track voice state server-side, just relay
-      socket.emit('voice_peers', voicePeers);
+    const name = data.name || '???';
+
+    // Track this peer
+    if (!voicePeers.has(roomId)) voicePeers.set(roomId, new Map());
+    const roomVoice = voicePeers.get(roomId);
+
+    // Send existing peers to the joiner BEFORE adding them
+    const existingPeers = [];
+    for (const [sid, pName] of roomVoice.entries()) {
+      if (sid !== socket.id) existingPeers.push({ socketId: sid, name: pName });
     }
+    socket.emit('voice_peers', existingPeers);
+
+    // Add to peer list
+    roomVoice.set(socket.id, name);
+
+    // Notify others that a new peer joined
+    socket.to(roomId).emit('voice_join', { socketId: socket.id, name });
   });
 
-  socket.on('voice_leave', (data) => {
+  socket.on('voice_leave', () => {
     const roomId = playerRoom.get(socket.id);
     if (!roomId) return;
+    const roomVoice = voicePeers.get(roomId);
+    if (roomVoice) {
+      roomVoice.delete(socket.id);
+      if (roomVoice.size === 0) voicePeers.delete(roomId);
+    }
     socket.to(roomId).emit('voice_leave', { socketId: socket.id });
   });
 
   socket.on('voice_signal', (data) => {
-    // WebRTC signaling relay
+    // Relay WebRTC signaling (offers, answers, ICE candidates)
     const { targetId, signal } = data;
     if (targetId) {
       io.to(targetId).emit('voice_signal', { fromId: socket.id, signal });
@@ -737,6 +766,14 @@ io.on('connection', (socket) => {
 function handleLeaveRoom(socket, isDisconnect = false) {
   const roomId = playerRoom.get(socket.id);
   if (!roomId) return;
+
+  // Clean up voice chat
+  const roomVoice = voicePeers.get(roomId);
+  if (roomVoice) {
+    roomVoice.delete(socket.id);
+    if (roomVoice.size === 0) voicePeers.delete(roomId);
+    socket.to(roomId).emit('voice_leave', { socketId: socket.id });
+  }
   const room = rooms.get(roomId);
   if (!room) { playerRoom.delete(socket.id); return; }
 
@@ -891,6 +928,134 @@ app.post('/api/dev/import', devAuth, (req, res) => {
   saveDevConfig(req.body.config);
   io.emit('dev_config_updated', req.body.config);
   res.json({ success: true });
+});
+
+// ============================================================
+// USER ACCOUNT API
+// ============================================================
+
+// Register
+app.post('/api/auth/register', (req, res) => {
+  const { username, password, displayName } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Missing username or password' });
+  if (username.length < 2 || username.length > 20) return res.status(400).json({ error: 'Username must be 2-20 characters' });
+  if (password.length < 3) return res.status(400).json({ error: 'Password too short' });
+
+  const users = loadUsers();
+  const key = username.toLowerCase();
+  if (users[key]) return res.status(409).json({ error: 'Username already taken' });
+
+  users[key] = {
+    username: key,
+    displayName: displayName || username,
+    password, // In production this should be hashed
+    avatar: null,
+    createdAt: Date.now(),
+    stats: {
+      monopoly: { gamesPlayed: 0, wins: 0, totalMoney: 0, totalRent: 0, totalRentPaid: 0, bestWealth: 0, propertiesBought: 0 },
+      flappy: { gamesPlayed: 0, highScore: 0, totalScore: 0 },
+    },
+  };
+  saveUsersData(users);
+  const { password: _, ...safeUser } = users[key];
+  res.json({ success: true, user: safeUser });
+});
+
+// Login
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Missing credentials' });
+
+  const users = loadUsers();
+  const key = username.toLowerCase();
+  const user = users[key];
+  if (!user || user.password !== password) return res.status(401).json({ error: 'Invalid credentials' });
+
+  const { password: _, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
+});
+
+// Get profile
+app.get('/api/auth/profile/:username', (req, res) => {
+  const users = loadUsers();
+  const user = users[req.params.username.toLowerCase()];
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const { password: _, ...safeUser } = user;
+  res.json({ user: safeUser });
+});
+
+// Update profile (display name, avatar)
+app.post('/api/auth/profile', (req, res) => {
+  const { username, password, displayName, avatar } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Missing credentials' });
+
+  const users = loadUsers();
+  const key = username.toLowerCase();
+  const user = users[key];
+  if (!user || user.password !== password) return res.status(401).json({ error: 'Invalid credentials' });
+
+  if (displayName !== undefined) user.displayName = displayName;
+  if (avatar !== undefined) user.avatar = avatar;
+  saveUsersData(users);
+
+  const { password: _, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
+});
+
+// Update stats
+app.post('/api/auth/stats', (req, res) => {
+  const { username, password, monopolyResult, flappyScore } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Missing credentials' });
+
+  const users = loadUsers();
+  const key = username.toLowerCase();
+  const user = users[key];
+  if (!user || user.password !== password) return res.status(401).json({ error: 'Invalid credentials' });
+
+  if (!user.stats) user.stats = { monopoly: { gamesPlayed: 0, wins: 0, totalMoney: 0, totalRent: 0, totalRentPaid: 0, bestWealth: 0, propertiesBought: 0 }, flappy: { gamesPlayed: 0, highScore: 0, totalScore: 0 } };
+
+  if (monopolyResult) {
+    const m = user.stats.monopoly;
+    m.gamesPlayed++;
+    if (monopolyResult.won) m.wins++;
+    m.totalMoney += monopolyResult.finalWealth || 0;
+    m.totalRent += monopolyResult.rentCollected || 0;
+    m.totalRentPaid += monopolyResult.rentPaid || 0;
+    m.propertiesBought += monopolyResult.propertiesBought || 0;
+    if ((monopolyResult.finalWealth || 0) > m.bestWealth) m.bestWealth = monopolyResult.finalWealth;
+  }
+
+  if (flappyScore !== undefined) {
+    const f = user.stats.flappy;
+    f.gamesPlayed++;
+    f.totalScore += flappyScore;
+    if (flappyScore > f.highScore) f.highScore = flappyScore;
+  }
+
+  saveUsersData(users);
+  const { password: _, ...safeUser } = user;
+  res.json({ success: true, user: safeUser });
+});
+
+// Leaderboard
+app.get('/api/leaderboard/flappy', (req, res) => {
+  const users = loadUsers();
+  const list = Object.values(users)
+    .filter(u => u.stats?.flappy?.highScore > 0)
+    .map(u => ({ name: u.displayName, score: u.stats.flappy.highScore }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 50);
+  res.json({ leaderboard: list });
+});
+
+app.get('/api/leaderboard/monopoly', (req, res) => {
+  const users = loadUsers();
+  const list = Object.values(users)
+    .filter(u => u.stats?.monopoly?.gamesPlayed > 0)
+    .map(u => ({ name: u.displayName, wins: u.stats.monopoly.wins, games: u.stats.monopoly.gamesPlayed, bestWealth: u.stats.monopoly.bestWealth }))
+    .sort((a, b) => b.wins - a.wins)
+    .slice(0, 50);
+  res.json({ leaderboard: list });
 });
 
 // Health check

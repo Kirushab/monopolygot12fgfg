@@ -117,6 +117,11 @@ input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
   100% { transform: scale(2.5); opacity: 0; }
 }
 
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
 /* ======== BOARD CELL HOVER ======== */
 
 .cell:hover {
@@ -190,116 +195,26 @@ button:active:not(:disabled) {
 
 /* ======== RESPONSIVE ======== */
 
-@keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-40px); }
-  to { opacity: 1; transform: translateX(0); }
+/* Board takes full screen on all devices */
+.game-board-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
-/* Portrait tablet */
-@media (max-width: 900px) and (orientation: portrait) {
-  .game-layout {
-    flex-direction: column !important;
-  }
-  .game-board-container {
-    max-height: 55vh;
-    overflow: hidden;
-  }
-  .game-panel {
-    width: 100% !important;
-    max-height: 45vh;
-    border-left: none !important;
-    border-top: 1px solid rgba(201,168,76,0.2);
-  }
-  .game-top-bar {
-    padding: 4px 8px !important;
-    font-size: 11px;
-  }
-}
-
-/* Landscape mode - board takes full screen */
-@media (orientation: landscape) and (max-height: 600px) {
-  .game-top-bar {
-    display: none !important;
-  }
-  .game-layout {
-    flex-direction: row !important;
-    height: 100vh !important;
-  }
-  .game-board-container {
-    flex: 1;
-    max-height: 100vh !important;
-    padding: 2px !important;
-  }
-  .game-panel {
-    width: 200px !important;
-    max-width: 200px;
-    max-height: 100vh;
-    border-left: 1px solid rgba(201,168,76,0.2) !important;
-    border-top: none !important;
-  }
-  .game-side-controls {
-    display: flex !important;
-  }
-}
-
-/* Landscape with wider screen */
-@media (orientation: landscape) and (min-height: 601px) {
-  .game-top-bar {
-    padding: 4px 8px !important;
-  }
-}
-
-/* Mobile portrait */
-@media (max-width: 600px) and (orientation: portrait) {
-  .game-board-container {
-    padding: 2px !important;
-    max-height: 50vh;
-  }
-  .game-panel {
-    max-height: 50vh;
-  }
-  .game-top-bar {
-    padding: 3px 6px !important;
-  }
-  .game-top-bar button {
-    padding: 3px 8px !important;
-    font-size: 11px !important;
-  }
-}
-
-/* Side controls for landscape (hidden by default, shown in landscape) */
-.game-side-controls {
-  display: none;
-  position: fixed;
-  left: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  flex-direction: column;
-  gap: 6px;
-  z-index: 25;
-}
-
-/* Collapsible panel overlay on mobile */
-.game-panel-overlay {
-  display: none;
-}
-
+/* Small screens - make board fill more */
 @media (max-width: 600px) {
-  .game-panel-overlay.visible {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.5);
-    z-index: 14;
+  .game-board-container {
+    padding: 2px !important;
   }
-  .game-panel.mobile-open {
-    position: fixed !important;
-    right: 0 !important;
-    top: 0 !important;
-    bottom: 0 !important;
-    width: 280px !important;
-    z-index: 15;
-    animation: slideInRight 0.3s ease-out;
+}
+
+/* Landscape optimization */
+@media (orientation: landscape) and (max-height: 600px) {
+  .game-board-container {
+    padding: 2px !important;
   }
 }
 

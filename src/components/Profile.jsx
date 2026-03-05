@@ -7,7 +7,24 @@ const rgba = (hex, a) => {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 };
 
-// Load/save profile from localStorage
+// Session management
+export function getSession() {
+  try {
+    const raw = localStorage.getItem('authSession');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
+export function setSession(session) {
+  try { localStorage.setItem('authSession', JSON.stringify(session)); } catch {}
+}
+
+export function clearSession() {
+  try { localStorage.removeItem('authSession'); } catch {}
+}
+
+// Load/save profile from localStorage (fallback for offline)
 export function loadProfile() {
   try {
     const raw = localStorage.getItem('playerProfile');
@@ -25,7 +42,7 @@ export function saveProfile(profile) {
   try { localStorage.setItem('playerProfile', JSON.stringify(profile)); } catch {}
 }
 
-export function recordMonopolyResult(profile, { won, finalWealth, rentCollected, rentPaid, propertiesBought }) {
+export async function recordMonopolyResult(profile, { won, finalWealth, rentCollected, rentPaid, propertiesBought }) {
   profile.monopoly.gamesPlayed++;
   if (won) profile.monopoly.wins++;
   profile.monopoly.totalMoney += finalWealth;
@@ -34,16 +51,46 @@ export function recordMonopolyResult(profile, { won, finalWealth, rentCollected,
   profile.monopoly.propertiesBought += propertiesBought || 0;
   if (finalWealth > profile.monopoly.bestWealth) profile.monopoly.bestWealth = finalWealth;
   saveProfile(profile);
+
+  // Sync to server if logged in
+  const session = getSession();
+  if (session) {
+    try {
+      await fetch('/api/auth/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: session.username,
+          password: session.password,
+          monopolyResult: { won, finalWealth, rentCollected, rentPaid, propertiesBought },
+        }),
+      });
+    } catch {}
+  }
   return profile;
 }
 
-export function recordFlappyScore(profile, score) {
+export async function recordFlappyScore(profile, score) {
   profile.flappy.gamesPlayed++;
   profile.flappy.totalScore += score;
   if (score > profile.flappy.highScore) profile.flappy.highScore = score;
-  // Keep last 20 scores
   profile.flappy.scores = [...(profile.flappy.scores || []), { score, date: Date.now() }].slice(-20);
   saveProfile(profile);
+
+  const session = getSession();
+  if (session) {
+    try {
+      await fetch('/api/auth/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: session.username,
+          password: session.password,
+          flappyScore: score,
+        }),
+      });
+    } catch {}
+  }
   return profile;
 }
 
@@ -72,8 +119,16 @@ export function addToFlappyLeaderboard(name, score) {
 export default function Profile({ onClose, lang, devData }) {
   const [profile, setProfile] = useState(loadProfile);
   const [flappyLB, setFlappyLB] = useState(loadFlappyLeaderboard);
-  const [tab, setTab] = useState('stats'); // stats | flappy | edit
+  const [tab, setTab] = useState('stats');
   const [editName, setEditName] = useState(profile.name || '');
+
+  // Auth state
+  const [session, setSessionState] = useState(getSession);
+  const [authMode, setAuthMode] = useState('login'); // login | register
+  const [authUser, setAuthUser] = useState('');
+  const [authPass, setAuthPass] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
 
   const accent = devData?.accentColor || S.gold;
   const font = devData?.font || S.font;
@@ -84,11 +139,37 @@ export default function Profile({ onClose, lang, devData }) {
   const cardBg = ui.cardBg || S.bg3;
   const cardBorder = ui.cardBorder || S.border;
 
+  // Fetch server leaderboard
+  useEffect(() => {
+    fetch('/api/leaderboard/flappy').then(r => r.json()).then(d => {
+      if (d.leaderboard?.length) setFlappyLB(d.leaderboard);
+    }).catch(() => {});
+  }, []);
+
+  // Sync profile from server if logged in
+  useEffect(() => {
+    if (!session) return;
+    fetch(`/api/auth/profile/${session.username}`).then(r => r.json()).then(d => {
+      if (d.user?.stats) {
+        const updated = {
+          ...profile,
+          name: d.user.displayName || profile.name,
+          avatar: d.user.avatar || profile.avatar,
+          monopoly: { ...profile.monopoly, ...d.user.stats.monopoly },
+          flappy: { ...profile.flappy, ...d.user.stats.flappy },
+        };
+        setProfile(updated);
+        saveProfile(updated);
+      }
+    }).catch(() => {});
+  }, [session]);
+
   const t = lang === 'ru' ? {
     profile: 'Профиль',
     stats: 'Статистика',
     flappyRating: 'Рейтинг Flappy',
-    editProfile: 'Редактировать',
+    editProfile: 'Профиль',
+    account: 'Аккаунт',
     monopolyStats: 'Монополия',
     flappyStats: 'Flappy Dragon',
     gamesPlayed: 'Игр сыграно',
@@ -109,11 +190,20 @@ export default function Profile({ onClose, lang, devData }) {
     player: 'Игрок',
     score: 'Счёт',
     uploadAvatar: 'Загрузить аватар',
+    login: 'Войти',
+    register: 'Регистрация',
+    logout: 'Выйти',
+    username: 'Логин',
+    password: 'Пароль',
+    loggedAs: 'Вы вошли как',
+    noAccount: 'Нет аккаунта?',
+    haveAccount: 'Есть аккаунт?',
   } : {
     profile: 'Profile',
     stats: 'Statistics',
     flappyRating: 'Flappy Rating',
-    editProfile: 'Edit',
+    editProfile: 'Profile',
+    account: 'Account',
     monopolyStats: 'Monopoly',
     flappyStats: 'Flappy Dragon',
     gamesPlayed: 'Games Played',
@@ -134,24 +224,85 @@ export default function Profile({ onClose, lang, devData }) {
     player: 'Player',
     score: 'Score',
     uploadAvatar: 'Upload Avatar',
+    login: 'Login',
+    register: 'Register',
+    logout: 'Logout',
+    username: 'Username',
+    password: 'Password',
+    loggedAs: 'Logged in as',
+    noAccount: 'No account?',
+    haveAccount: 'Have account?',
+  };
+
+  const doAuth = async () => {
+    if (!authUser.trim() || !authPass.trim()) return;
+    setAuthLoading(true);
+    setAuthError('');
+    try {
+      const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: authUser.trim(), password: authPass.trim(), displayName: editName || authUser.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setAuthError(data.error || 'Error'); setAuthLoading(false); return; }
+      const sess = { username: authUser.trim().toLowerCase(), password: authPass.trim(), user: data.user };
+      setSession(sess);
+      setSessionState(sess);
+      if (data.user?.displayName) {
+        const updated = { ...profile, name: data.user.displayName };
+        setProfile(updated);
+        saveProfile(updated);
+        setEditName(data.user.displayName);
+      }
+    } catch (e) {
+      setAuthError(lang === 'ru' ? 'Ошибка сети' : 'Network error');
+    }
+    setAuthLoading(false);
+  };
+
+  const doLogout = () => {
+    clearSession();
+    setSessionState(null);
+    setAuthUser('');
+    setAuthPass('');
   };
 
   const handleAvatarUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const updated = { ...profile, avatar: ev.target.result };
       setProfile(updated);
       saveProfile(updated);
+      if (session) {
+        try {
+          await fetch('/api/auth/profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: session.username, password: session.password, avatar: ev.target.result }),
+          });
+        } catch {}
+      }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleSaveName = () => {
+  const handleSaveName = async () => {
     const updated = { ...profile, name: editName.trim() };
     setProfile(updated);
     saveProfile(updated);
+    if (session) {
+      try {
+        await fetch('/api/auth/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: session.username, password: session.password, displayName: editName.trim() }),
+        });
+      } catch {}
+    }
     setTab('stats');
   };
 
@@ -169,14 +320,21 @@ export default function Profile({ onClose, lang, devData }) {
     </div>
   );
 
+  const inputStyle = {
+    width: '100%', padding: '10px 12px', fontSize: 14,
+    background: rgba(accent, 0.05), color: text,
+    border: `1px solid ${rgba(accent, 0.2)}`,
+    borderRadius: 8, fontFamily: font,
+  };
+
   return (
-    <div style={{
+    <div onClick={onClose} style={{
       position: 'fixed', inset: 0, zIndex: 150,
       background: 'rgba(0,0,0,0.85)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontFamily: font, padding: 16,
     }}>
-      <div style={{
+      <div onClick={e => e.stopPropagation()} style={{
         width: '100%', maxWidth: 480, maxHeight: '90vh',
         background: pageBg, borderRadius: 16,
         border: `1px solid ${rgba(accent, 0.2)}`,
@@ -189,7 +347,6 @@ export default function Profile({ onClose, lang, devData }) {
           borderBottom: `1px solid ${rgba(accent, 0.15)}`,
           background: rgba(accent, 0.05),
         }}>
-          {/* Avatar */}
           <div style={{
             width: 52, height: 52, borderRadius: '50%',
             background: rgba(accent, 0.15), border: `2px solid ${rgba(accent, 0.3)}`,
@@ -204,7 +361,7 @@ export default function Profile({ onClose, lang, devData }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 18, fontWeight: 'bold', color: text }}>{profile.name || (lang === 'ru' ? 'Игрок' : 'Player')}</div>
             <div style={{ fontSize: 11, color: textDim }}>
-              🎲 {profile.monopoly.gamesPlayed} | 🐉 {profile.flappy.gamesPlayed}
+              {session ? `${t.loggedAs}: ${session.username}` : `🎲 ${profile.monopoly.gamesPlayed} | 🐉 ${profile.flappy.gamesPlayed}`}
             </div>
           </div>
           <button onClick={onClose} style={{
@@ -219,13 +376,14 @@ export default function Profile({ onClose, lang, devData }) {
             { key: 'stats', label: t.stats },
             { key: 'flappy', label: t.flappyRating },
             { key: 'edit', label: t.editProfile },
+            { key: 'account', label: t.account },
           ].map(tb => (
             <button key={tb.key} onClick={() => setTab(tb.key)} style={{
-              flex: 1, padding: '10px 8px', fontSize: 12, cursor: 'pointer',
+              flex: 1, padding: '10px 4px', fontSize: 11, cursor: 'pointer',
               background: tab === tb.key ? rgba(accent, 0.1) : 'transparent',
               color: tab === tb.key ? accent : textDim,
               border: 'none', borderBottom: tab === tb.key ? `2px solid ${accent}` : '2px solid transparent',
-              fontFamily: font, letterSpacing: 1,
+              fontFamily: font, letterSpacing: 0.5,
             }}>{tb.label}</button>
           ))}
         </div>
@@ -283,17 +441,7 @@ export default function Profile({ onClose, lang, devData }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
                 <label style={{ fontSize: 12, color: textDim, marginBottom: 4, display: 'block' }}>{t.name}</label>
-                <input
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  maxLength={20}
-                  style={{
-                    width: '100%', padding: '10px 12px', fontSize: 14,
-                    background: rgba(accent, 0.05), color: text,
-                    border: `1px solid ${rgba(accent, 0.2)}`,
-                    borderRadius: 8, fontFamily: font,
-                  }}
-                />
+                <input value={editName} onChange={(e) => setEditName(e.target.value)} maxLength={20} style={inputStyle} />
               </div>
 
               <div>
@@ -304,7 +452,7 @@ export default function Profile({ onClose, lang, devData }) {
                   )}
                   <label style={{
                     ...btnOutline({ fontSize: 12, padding: '8px 16px' }),
-                    display: 'inline-block', textAlign: 'center',
+                    display: 'inline-block', textAlign: 'center', cursor: 'pointer',
                   }}>
                     📷 {t.uploadAvatar}
                     <input type="file" accept="image/*" onChange={handleAvatarUpload} style={{ display: 'none' }} />
@@ -313,6 +461,52 @@ export default function Profile({ onClose, lang, devData }) {
               </div>
 
               <button onClick={handleSaveName} style={btn({ width: '100%', marginTop: 8 })}>{t.save}</button>
+            </div>
+          )}
+
+          {tab === 'account' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {session ? (
+                <>
+                  <div style={{ textAlign: 'center', padding: 16 }}>
+                    <div style={{ fontSize: 40, marginBottom: 8 }}>👤</div>
+                    <div style={{ fontSize: 16, fontWeight: 'bold', color: text }}>{session.user?.displayName || session.username}</div>
+                    <div style={{ fontSize: 12, color: textDim, marginTop: 4 }}>{t.loggedAs}: {session.username}</div>
+                  </div>
+                  <button onClick={doLogout} style={{ ...btnOutline({ width: '100%', fontSize: 14, padding: '10px' }), color: '#ff6b6b', borderColor: '#ff6b6b44' }}>
+                    {t.logout}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 14, color: accent, fontWeight: 'bold', textAlign: 'center', letterSpacing: 2 }}>
+                    {authMode === 'login' ? t.login : t.register}
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, color: textDim, marginBottom: 4, display: 'block' }}>{t.username}</label>
+                    <input value={authUser} onChange={(e) => setAuthUser(e.target.value)} maxLength={20} style={inputStyle} />
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, color: textDim, marginBottom: 4, display: 'block' }}>{t.password}</label>
+                    <input type="password" value={authPass} onChange={(e) => setAuthPass(e.target.value)} maxLength={50} style={inputStyle}
+                      onKeyDown={e => e.key === 'Enter' && doAuth()} />
+                  </div>
+
+                  {authError && <div style={{ fontSize: 12, color: '#ff6b6b', textAlign: 'center' }}>{authError}</div>}
+
+                  <button onClick={doAuth} disabled={authLoading} style={btn({ width: '100%', fontSize: 14, padding: '10px', opacity: authLoading ? 0.5 : 1 })}>
+                    {authLoading ? '...' : authMode === 'login' ? t.login : t.register}
+                  </button>
+
+                  <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }} style={{
+                    background: 'transparent', border: 'none', color: accent, cursor: 'pointer', fontSize: 12, fontFamily: font, padding: 8,
+                  }}>
+                    {authMode === 'login' ? t.noAccount : t.haveAccount}
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

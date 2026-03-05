@@ -1031,8 +1031,8 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
             {[
               ["panelBg", "Фон панели", S.bg2],
               ["panelBorder", "Рамка панели", S.border],
-              ["topBarBg", "Фон верх. бара", S.bg2],
-              ["topBarBorder", "Рамка верх. бара", S.border],
+              ["floatingBtnBg", "Фон плав. кнопок", "#0a0a12"],
+              ["floatingBtnBorder", "Рамка плав. кнопок", S.gold],
             ].map(([key, lbl, def]) => (
               <div key={key} style={row}>
                 <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
