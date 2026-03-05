@@ -8,8 +8,10 @@ const SERVER_URL = import.meta.env.VITE_SERVER_URL || (import.meta.env.PROD ? un
 export default function useMultiplayer() {
   const socketRef = useRef(null);
   const [connected, setConnected] = useState(false);
+  const [socketReady, setSocketReady] = useState(false);
   const [roomList, setRoomList] = useState([]);
   const [roomState, setRoomState] = useState(null);
+  const [currentRoom, setCurrentRoom] = useState(null);
   const [onlineGame, setOnlineGame] = useState(null);
   const [mySlotIndex, setMySlotIndex] = useState(null);
   const [myPlayerIndex, setMyPlayerIndex] = useState(null);
@@ -25,13 +27,23 @@ export default function useMultiplayer() {
       reconnectionDelay: 2000,
     });
     socketRef.current = socket;
+    setSocketReady(true);
 
     socket.on('connect', () => setConnected(true));
     socket.on('disconnect', () => setConnected(false));
     socket.on('room_list', (list) => setRoomList(list));
-    socket.on('room_state', (state) => setRoomState(state));
-    socket.on('room_created', (data) => setRoomState(prev => prev || { id: data.roomId }));
-    socket.on('room_joined', (data) => setMySlotIndex(data.slotIndex));
+    socket.on('room_state', (state) => {
+      setRoomState(state);
+      if (state?.id) setCurrentRoom(state.id);
+    });
+    socket.on('room_created', (data) => {
+      setCurrentRoom(data.roomId);
+      setRoomState(prev => prev || { id: data.roomId });
+    });
+    socket.on('room_joined', (data) => {
+      setMySlotIndex(data.slotIndex);
+      if (data.roomId) setCurrentRoom(data.roomId);
+    });
     socket.on('game_state', (state) => setOnlineGame(state));
     socket.on('game_started', (data) => {
       const myIdx = data.playerMap?.[socket.id];
@@ -58,6 +70,7 @@ export default function useMultiplayer() {
 
   const joinRoom = useCallback((roomId, playerName) => {
     emit('join_room', { roomId, playerName });
+    setCurrentRoom(roomId);
   }, [emit]);
 
   const leaveRoom = useCallback(() => {
@@ -67,6 +80,7 @@ export default function useMultiplayer() {
     setMySlotIndex(null);
     setMyPlayerIndex(null);
     setChatMessages([]);
+    setCurrentRoom(null);
   }, [emit]);
 
   const toggleReady = useCallback(() => emit('toggle_ready'), [emit]);
@@ -103,6 +117,7 @@ export default function useMultiplayer() {
     socketId: socketRef.current?.id,
     roomList,
     roomState,
+    currentRoom,
     onlineGame,
     mySlotIndex,
     myPlayerIndex,
