@@ -31,6 +31,26 @@ const DEFAULT_DEV_DATA = {
     victoryBg: null,
     topBarBg: null, topBarBorder: null,
   },
+  // Game button customization
+  gameButtons: {
+    rollDice: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null, borderRadius: null, fontSize: null },
+    buy: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null, borderRadius: null },
+    auction: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null },
+    endTurn: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null },
+    pause: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null },
+    chat: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null },
+    properties: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null },
+    menu: { icon: null, iconImage: null, bgColor: null, textColor: null, borderColor: null },
+  },
+  // Custom icons for main menu and toolbar
+  customIcons: {
+    flappyButton: null,
+    profileButton: null,
+    settingsIcon: null,
+    rulesIcon: null,
+    friendsIcon: null,
+    playIcon: null,
+  },
 };
 
 export function loadDevData() {
@@ -178,6 +198,14 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
       else if (uploadTarget?.startsWith("building:")) updateNested("buildingTextures", uploadTarget.split(":")[1], dataUrl);
       else if (uploadTarget?.startsWith("cellbg:")) updateNested("cellBgTextures", parseInt(uploadTarget.split(":")[1]), dataUrl);
       else if (uploadTarget === "flappy_dragon") saveToServer({ ...devData, flappyConfig: { ...(devData.flappyConfig || {}), dragonImage: dataUrl } });
+      else if (uploadTarget?.startsWith("gamebtn:")) {
+        const btnKey = uploadTarget.split(":")[1];
+        updateGameButton(btnKey, "iconImage", dataUrl);
+      }
+      else if (uploadTarget?.startsWith("customicon:")) {
+        const iconKey = uploadTarget.split(":")[1];
+        updateCustomIcon(iconKey, dataUrl);
+      }
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -318,12 +346,26 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
 
   const tabs = [
     ["textures", "🖼"], ["colors", "🎨"], ["audio", "🎵"],
-    ["menu", "📱"], ["text", "✏️"], ["styles", "⚙️"], ["ui", "🎭"], ["system", "💾"],
+    ["menu", "📱"], ["buttons", "🎮"], ["text", "✏️"], ["styles", "⚙️"], ["ui", "🎭"], ["system", "💾"],
   ];
 
   const tabNames = {
     textures: "Текстуры", colors: "Цвета", audio: "Аудио",
-    menu: "Меню", text: "Текст", styles: "Стили", ui: "Интерфейс", system: "Система",
+    menu: "Меню", buttons: "Кнопки", text: "Текст", styles: "Стили", ui: "Интерфейс", system: "Система",
+  };
+
+  const updateGameButton = (btnKey, field, value) => {
+    const gb = { ...(devData.gameButtons || {}) };
+    gb[btnKey] = { ...(gb[btnKey] || {}), [field]: value };
+    saveToServer({ ...devData, gameButtons: gb });
+  };
+  const clearGameButton = (btnKey, field) => {
+    const gb = { ...(devData.gameButtons || {}) };
+    if (gb[btnKey]) { delete gb[btnKey][field]; }
+    saveToServer({ ...devData, gameButtons: gb });
+  };
+  const updateCustomIcon = (key, value) => {
+    saveToServer({ ...devData, customIcons: { ...(devData.customIcons || {}), [key]: value } });
   };
 
   const filteredCells = cellSearch
@@ -786,6 +828,93 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
                 <button onClick={() => saveToServer({ ...devData, flappyConfig: { ...(devData.flappyConfig || {}), dragonImage: null } })} style={clearBtn}>✕</button>
               </>)}
             </div>
+          </div>
+        </>)}
+
+        {/* ===================== BUTTONS TAB ===================== */}
+        {tab === "buttons" && (<>
+          <div style={section}>
+            <span style={label}>Кнопки игрового экрана</span>
+            <div style={{ fontSize: 9, color: S.textDim, marginBottom: 8 }}>Настройте внешний вид кнопок: иконку (эмодзи или картинка), цвета, скругление.</div>
+            {[
+              ["rollDice", "Бросить кубики", "🎲"],
+              ["buy", "Купить", "💰"],
+              ["auction", "Аукцион", "📢"],
+              ["endTurn", "Завершить ход", "→"],
+              ["pause", "Пауза", "⏸"],
+              ["chat", "Чат", "💬"],
+              ["properties", "Владения", "🏘"],
+              ["menu", "Меню (☰)", "☰"],
+            ].map(([key, lbl, defIcon]) => {
+              const cfg = devData.gameButtons?.[key] || {};
+              return (
+                <div key={key} style={{ marginBottom: 10, padding: 8, background: S.bg, borderRadius: 6, border: `1px solid ${S.border}` }}>
+                  <div style={{ fontSize: 11, color: accent, fontWeight: "bold", marginBottom: 6 }}>{lbl}</div>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                    {/* Icon emoji */}
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <span style={{ fontSize: 9, color: S.textDim }}>Иконка</span>
+                      <input type="text" value={cfg.icon ?? defIcon} onChange={(e) => updateGameButton(key, "icon", e.target.value)}
+                        style={{ width: 36, textAlign: "center", fontSize: 16, padding: "2px", background: S.bg3, border: `1px solid ${S.border}`, borderRadius: 4, color: S.text }} />
+                      {cfg.icon && <button onClick={() => clearGameButton(key, "icon")} style={clearBtn}>↩</button>}
+                    </div>
+                    {/* Icon image upload */}
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <button onClick={() => triggerUpload(`gamebtn:${key}`)} style={smallBtn}>
+                        {cfg.iconImage ? "📷" : "+📷"}
+                      </button>
+                      {cfg.iconImage && (<>
+                        <img src={cfg.iconImage} style={{ width: 20, height: 20, objectFit: "contain", borderRadius: 3 }} />
+                        <button onClick={() => clearGameButton(key, "iconImage")} style={clearBtn}>✕</button>
+                      </>)}
+                    </div>
+                    {/* Background color */}
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <span style={{ fontSize: 9, color: S.textDim }}>Фон</span>
+                      <input type="color" value={cfg.bgColor || accent} onChange={(e) => updateGameButton(key, "bgColor", e.target.value)} style={colorInput} />
+                      {cfg.bgColor && <button onClick={() => clearGameButton(key, "bgColor")} style={clearBtn}>↩</button>}
+                    </div>
+                    {/* Text color */}
+                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                      <span style={{ fontSize: 9, color: S.textDim }}>Текст</span>
+                      <input type="color" value={cfg.textColor || "#0a0a12"} onChange={(e) => updateGameButton(key, "textColor", e.target.value)} style={colorInput} />
+                      {cfg.textColor && <button onClick={() => clearGameButton(key, "textColor")} style={clearBtn}>↩</button>}
+                    </div>
+                  </div>
+                  {/* Border radius */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                    <span style={{ fontSize: 9, color: S.textDim }}>Скругление</span>
+                    <input type="range" min="0" max="24" step="1" value={cfg.borderRadius ?? 8}
+                      onChange={(e) => updateGameButton(key, "borderRadius", parseInt(e.target.value))} style={{ ...sliderStyle, maxWidth: 120 }} />
+                    <span style={{ fontSize: 9, color: S.textDim }}>{cfg.borderRadius ?? 8}px</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={section}>
+            <span style={label}>Иконки интерфейса (загрузка картинок)</span>
+            <div style={{ fontSize: 9, color: S.textDim, marginBottom: 8 }}>Замените стандартные иконки на свои картинки.</div>
+            {[
+              ["flappyButton", "Кнопка дракона (меню)"],
+              ["profileButton", "Кнопка профиля (меню)"],
+              ["playIcon", "Иконка ИГРАТЬ"],
+              ["settingsIcon", "Иконка НАСТРОЙКИ"],
+              ["friendsIcon", "Иконка ДРУЗЬЯ"],
+              ["rulesIcon", "Иконка ПРАВИЛА"],
+            ].map(([key, lbl]) => (
+              <div key={key} style={{ ...row, marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: S.text, flex: 1, minWidth: 100 }}>{lbl}</span>
+                <button onClick={() => triggerUpload(`customicon:${key}`)} style={smallBtn}>
+                  {devData.customIcons?.[key] ? "Заменить" : "Загрузить"}
+                </button>
+                {devData.customIcons?.[key] && (<>
+                  <img src={devData.customIcons[key]} style={{ width: 24, height: 24, objectFit: "contain", borderRadius: 4 }} />
+                  <button onClick={() => updateCustomIcon(key, null)} style={clearBtn}>✕</button>
+                </>)}
+              </div>
+            ))}
           </div>
         </>)}
 

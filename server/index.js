@@ -659,6 +659,35 @@ io.on('connection', (socket) => {
   ga('accept_trade', (rid) => doAction(rid, "accept_trade"));
   ga('decline_trade', (rid) => doAction(rid, "decline_trade"));
 
+  // --- VOICE CHAT SIGNALING ---
+  socket.on('voice_join', (data) => {
+    const roomId = playerRoom.get(socket.id);
+    if (!roomId) return;
+    // Notify others in room
+    socket.to(roomId).emit('voice_join', { socketId: socket.id, name: data.name || '???' });
+    // Send current voice peers to the joiner
+    const room = rooms.get(roomId);
+    if (room) {
+      const voicePeers = [];
+      // We don't track voice state server-side, just relay
+      socket.emit('voice_peers', voicePeers);
+    }
+  });
+
+  socket.on('voice_leave', (data) => {
+    const roomId = playerRoom.get(socket.id);
+    if (!roomId) return;
+    socket.to(roomId).emit('voice_leave', { socketId: socket.id });
+  });
+
+  socket.on('voice_signal', (data) => {
+    // WebRTC signaling relay
+    const { targetId, signal } = data;
+    if (targetId) {
+      io.to(targetId).emit('voice_signal', { fromId: socket.id, signal });
+    }
+  });
+
   // --- CHAT ---
   socket.on('chat_message', (data) => {
     const roomId = playerRoom.get(socket.id);
