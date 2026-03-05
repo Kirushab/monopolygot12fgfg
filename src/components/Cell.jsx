@@ -15,8 +15,10 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
   const customName = devData?.cellNames?.[cell.id];
   const customTexture = devData?.cellTextures?.[cell.id];
   const cellBgTexture = devData?.cellBgTextures?.[cell.id];
+  const iconHidden = devData?.hiddenCellIcons?.[cell.id];
   const displayName = customName ?? cell.name;
   const cellIconSize = devData?.layout?.cellIconSize || 22;
+  const tokenSize = devData?.layout?.tokenSize || 13;
 
   // Dev overrides
   const accent = devData?.accentColor || S.gold;
@@ -105,8 +107,8 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
         <div style={{ position: "absolute", inset: 0, border: `1px solid ${ownerColor}33`, pointerEvents: "none", zIndex: 1 }} />
       )}
 
-      {/* Cell icon — custom texture or emoji */}
-      {customTexture ? (
+      {/* Cell icon — custom texture or emoji (can be hidden) */}
+      {!iconHidden && (customTexture ? (
         <img src={customTexture} style={{
           width: isCorner ? cellIconSize + 10 : cellIconSize,
           height: isCorner ? cellIconSize + 10 : cellIconSize,
@@ -117,7 +119,7 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
         }} />
       ) : cell.icon ? (
         <div style={{ fontSize: isCorner ? cellIconSize : Math.round(cellIconSize * 0.68), filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.3))", marginTop: house ? 4 : 0, position: "relative", zIndex: 2 }}>{cell.icon}</div>
-      ) : null}
+      ) : null)}
 
       {/* Cell name */}
       <div style={{
@@ -163,16 +165,16 @@ export default function Cell({ cell, idx, pos, isCorner, owner, playersHere, sel
         <div style={{ position: "absolute", bottom: 1, left: 1, display: "flex", gap: 0, flexWrap: "wrap", zIndex: 3 }}>
           {playersHere.map((p) => {
             const pColor = devData?.playerColors?.[p.id] || p.color;
+            const ts = isCorner ? tokenSize : Math.max(tokenSize - 3, 8);
             return devData?.tokenTextures?.[p.id] ? (
               <img key={p.id} src={devData.tokenTextures[p.id]} style={{
-                width: isCorner ? 13 : 10,
-                height: isCorner ? 13 : 10,
+                width: ts, height: ts,
                 borderRadius: "50%",
                 objectFit: "cover",
                 filter: `drop-shadow(0 1px 3px ${pColor}88)`,
               }} />
             ) : (
-              <span key={p.id} className="player-token" style={{ fontSize: isCorner ? 13 : 10, filter: `drop-shadow(0 1px 3px ${pColor}88)` }}>{p.token.emoji}</span>
+              <span key={p.id} className="player-token" style={{ fontSize: ts, filter: `drop-shadow(0 1px 3px ${pColor}88)` }}>{p.token.emoji}</span>
             );
           })}
         </div>
