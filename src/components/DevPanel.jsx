@@ -29,7 +29,9 @@ const DEFAULT_DEV_DATA = {
     popupBg: null, popupBorder: null, popupOverlay: null,
     settingsTitle: null, rulesTitle: null, setupTitle: null,
     victoryBg: null,
-    topBarBg: null, topBarBorder: null,
+    floatingBtnBg: null, floatingBtnBorder: null,
+    infoBarBg: null, infoBarBorder: null,
+    messageBg: null, messageColor: null,
   },
   // Game button customization
   gameButtons: {
@@ -1037,6 +1039,23 @@ export default function DevPanel({ game, devData, setDevData, onClose }) {
               <div key={key} style={row}>
                 <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
                 <input type="color" value={devData.uiConfig?.[key] || def} onChange={(e) => updateUI(key, e.target.value)} style={colorInput} />
+                <span style={{ fontSize: 9, color: S.textDim }}>{devData.uiConfig?.[key] || "—"}</span>
+                {devData.uiConfig?.[key] && <button onClick={() => updateUI(key, null)} style={clearBtn}>↩</button>}
+              </div>
+            ))}
+          </div>
+
+          <div style={section}>
+            <span style={label}>Инфо-бар / Сообщения</span>
+            {[
+              ["infoBarBg", "Фон инфо-бара", "#0a0a12"],
+              ["infoBarBorder", "Рамка инфо-бара", S.gold],
+              ["messageBg", "Фон сообщений", "#0a0a12"],
+              ["messageColor", "Текст сообщений", S.text],
+            ].map(([key, lbl, def]) => (
+              <div key={key} style={row}>
+                <span style={{ fontSize: 11, color: S.textDim, minWidth: 90 }}>{lbl}</span>
+                <input type="color" value={devData.uiConfig?.[key] || (typeof def === 'string' && def[0] === '#' ? def : "#0a0a12")} onChange={(e) => updateUI(key, e.target.value)} style={colorInput} />
                 <span style={{ fontSize: 9, color: S.textDim }}>{devData.uiConfig?.[key] || "—"}</span>
                 {devData.uiConfig?.[key] && <button onClick={() => updateUI(key, null)} style={clearBtn}>↩</button>}
               </div>

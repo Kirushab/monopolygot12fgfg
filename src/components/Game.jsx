@@ -48,7 +48,7 @@ export default function Game() {
     ],
   });
   const [chatOpen, setChatOpen] = useState(false);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [panelOpen, setPanelOpen] = useState(false);
   const [devPanelOpen, setDevPanelOpen] = useState(false);
   const [propManagerOpen, setPropManagerOpen] = useState(false);
   const [flappyOpen, setFlappyOpen] = useState(false);
@@ -616,7 +616,7 @@ export default function Game() {
     }
 
     if (screen === "settings") {
-      return <Settings lang={lang} setLang={setLang} setScreen={setScreen} musicVol={musicVol} setMusicVol={setMusicVol} effectsVol={effectsVol} setEffectsVol={setEffectsVol} t={t} />;
+      return <Settings lang={lang} setLang={setLang} setScreen={setScreen} musicVol={musicVol} setMusicVol={setMusicVol} effectsVol={effectsVol} setEffectsVol={setEffectsVol} t={t} devData={devData} />;
     }
 
     if (screen === "friends") {
@@ -625,15 +625,15 @@ export default function Game() {
         setChatMessages([]);
         setScreen("game");
       }
-      return <Lobby setScreen={setScreen} lang={lang} t={t} mp={mp} />;
+      return <Lobby setScreen={setScreen} lang={lang} t={t} mp={mp} devData={devData} />;
     }
 
     if (screen === "rules") {
-      return <Rules setScreen={setScreen} t={t} />;
+      return <Rules setScreen={setScreen} t={t} devData={devData} />;
     }
 
     if (screen === "setup") {
-      return <GameSetup lang={lang} config={config} setConfig={setConfig} setScreen={setScreen} startGame={startLocalGame} t={t} />;
+      return <GameSetup lang={lang} config={config} setConfig={setConfig} setScreen={setScreen} startGame={startLocalGame} t={t} devData={devData} />;
     }
 
     // ========== GAME SCREEN ==========
@@ -668,31 +668,30 @@ export default function Game() {
 
       const fbBg = devData?.uiConfig?.floatingBtnBg || S.bg2;
       const fbBorder = devData?.uiConfig?.floatingBtnBorder || ac;
+      const btnSize = isLandscape ? 30 : 38;
       const floatingBtnStyle = (active) => ({
         background: active ? ac + "44" : rgba(fbBg, 0.9),
         color: ac, border: `1px solid ${fbBorder}44`,
         padding: 0, borderRadius: "50%",
-        cursor: "pointer", fontSize: 14, fontFamily: f,
-        width: 38, height: 38,
+        cursor: "pointer", fontSize: isLandscape ? 12 : 14, fontFamily: f,
+        width: btnSize, height: btnSize,
         display: "flex", alignItems: "center", justifyContent: "center",
         boxShadow: "0 2px 12px rgba(0,0,0,0.5)",
         backdropFilter: "blur(8px)",
       });
 
-      // Compact info bar at top
-      const infoBarStyle = {
-        position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)",
-        zIndex: 20, display: "flex", alignItems: "center", gap: 8,
-        background: "rgba(10,10,18,0.75)", backdropFilter: "blur(8px)",
-        borderRadius: 20, padding: "4px 14px",
-        border: `1px solid ${ac}22`,
-        fontFamily: f,
-      };
+      const infoBg = devData?.uiConfig?.infoBarBg || "rgba(10,10,18,0.75)";
+      const infoBorder = devData?.uiConfig?.infoBarBorder || (ac + "22");
+      const msgBg = devData?.uiConfig?.messageBg || "rgba(10,10,18,0.85)";
+      const msgColor = devData?.uiConfig?.messageColor || S.text;
+
+      // In landscape on phone: controls on left, no panel auto-open
+      const controlsSide = isLandscape ? "left" : "right";
 
       return (
-        <div style={{ height: "100vh", background: S.bg, color: S.text, fontFamily: f, display: "flex", overflow: "hidden", position: "relative" }}>
+        <div style={{ height: "100vh", width: "100vw", background: S.bg, color: S.text, fontFamily: f, overflow: "hidden", position: "relative" }}>
           {/* BOARD fills full screen */}
-          <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+          <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden" }}>
             <Board
               game={game}
               selectedCell={selectedCell}
@@ -705,21 +704,31 @@ export default function Game() {
             />
 
             {/* Compact info bar */}
-            <div style={infoBarStyle}>
+            <div style={{
+              position: "absolute", top: isLandscape ? 4 : 8,
+              left: "50%", transform: "translateX(-50%)",
+              zIndex: 20, display: "flex", alignItems: "center", gap: isLandscape ? 4 : 8,
+              background: infoBg, backdropFilter: "blur(8px)",
+              borderRadius: 20, padding: isLandscape ? "2px 10px" : "4px 14px",
+              border: `1px solid ${infoBorder}`,
+              fontFamily: f,
+            }}>
               {devData?.logoImage
-                ? <img src={devData.logoImage} style={{ height: 16, objectFit: "contain" }} alt="" />
-                : <span style={{ color: ac, fontWeight: "bold", fontSize: 11, letterSpacing: 1 }}>{devData?.centerEmoji || "⚔️"}</span>
+                ? <img src={devData.logoImage} style={{ height: isLandscape ? 12 : 16, objectFit: "contain" }} alt="" />
+                : <span style={{ color: ac, fontWeight: "bold", fontSize: isLandscape ? 9 : 11, letterSpacing: 1 }}>{devData?.centerEmoji || "⚔️"}</span>
               }
-              <span style={{ color: S.textDim, fontSize: 10 }}>R{game.roundCount}</span>
-              <span style={{ fontSize: 11, color: ac, fontWeight: "bold" }}>{cp.token.emoji} {cp.name}</span>
-              <span style={{ fontSize: 10, color: S.textDim }}>{cp.money} {t.gold}</span>
+              <span style={{ color: S.textDim, fontSize: isLandscape ? 8 : 10 }}>R{game.roundCount}</span>
+              <span style={{ fontSize: isLandscape ? 9 : 11, color: ac, fontWeight: "bold" }}>{cp.token.emoji} {cp.name}</span>
+              <span style={{ fontSize: isLandscape ? 8 : 10, color: S.textDim }}>{cp.money} {t.gold}</span>
               {isOnline && <span style={{ fontSize: 9, color: mp.connected ? "#50c878" : "#ff6b6b" }}>●</span>}
             </div>
 
-            {/* Floating controls - right side */}
+            {/* Floating controls - left in landscape, right otherwise */}
             <div style={{
-              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
-              display: "flex", flexDirection: "column", gap: 8, zIndex: 20,
+              position: "absolute",
+              [controlsSide]: isLandscape ? 4 : 10,
+              top: "50%", transform: "translateY(-50%)",
+              display: "flex", flexDirection: "column", gap: isLandscape ? 4 : 8, zIndex: 20,
             }}>
               <button onClick={() => setPanelOpen(!panelOpen)} style={getGBtnStyle("menu", floatingBtnStyle(panelOpen))} title={lang === "ru" ? "Панель" : "Panel"}>
                 {getGBtnIcon("menu", "☰")}
@@ -746,22 +755,21 @@ export default function Game() {
           {/* Panel overlay backdrop - click to close */}
           {panelOpen && (
             <div onClick={() => setPanelOpen(false)} style={{
-              position: "fixed", inset: 0, background: isMobile ? "rgba(0,0,0,0.5)" : "transparent",
-              zIndex: 24, pointerEvents: isMobile ? "auto" : "none",
+              position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+              zIndex: 24,
             }} />
           )}
 
-          {/* Side panel */}
+          {/* Side panel - always slides from right */}
           <div style={{
             position: "fixed", right: 0, top: 0, bottom: 0,
-            width: panelOpen ? Math.min(300, window.innerWidth * (isMobile ? 0.85 : 0.35)) : 0,
+            width: panelOpen ? Math.min(isLandscape ? 220 : 300, window.innerWidth * (isLandscape ? 0.4 : isMobile ? 0.85 : 0.35)) : 0,
             background: devData?.uiConfig?.panelBg || S.bg2,
             borderLeft: panelOpen ? `1px solid ${devData?.uiConfig?.panelBorder || S.border}` : "none",
             display: "flex", flexDirection: "column",
             overflow: "hidden", zIndex: 25,
             transition: "width 0.25s ease",
             boxShadow: panelOpen ? "-4px 0 24px rgba(0,0,0,0.5)" : "none",
-            pointerEvents: "auto",
           }}>
             <PlayerPanel game={game} lang={lang} t={t} onClose={() => setPanelOpen(false)} devData={devData} />
 
@@ -841,10 +849,11 @@ export default function Game() {
           {/* Message toast at bottom */}
           {game.message && (
             <div style={{
-              position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)",
-              background: "rgba(10,10,18,0.85)", backdropFilter: "blur(8px)",
-              color: S.text, padding: "8px 20px", borderRadius: 20,
-              border: `1px solid ${ac}33`, fontSize: 12, fontFamily: f,
+              position: "fixed", bottom: isLandscape ? 4 : 16,
+              left: "50%", transform: "translateX(-50%)",
+              background: msgBg, backdropFilter: "blur(8px)",
+              color: msgColor, padding: isLandscape ? "4px 14px" : "8px 20px", borderRadius: 20,
+              border: `1px solid ${ac}33`, fontSize: isLandscape ? 10 : 12, fontFamily: f,
               zIndex: 15, maxWidth: "80%", textAlign: "center",
               boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
               animation: "fadeIn 0.3s ease-out",
